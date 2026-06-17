@@ -1,0 +1,117 @@
+// QBO entity operations (blueprint §6): customer, item, invoice — with the
+// find-or-create + idempotency helpers push.ts relies on.
+
+import { qboPost, qboQuery } from "./client";
+
+interface QboRef {
+  value: string;
+  name?: string;
+}
+
+export interface QboInvoiceLineInput {
+  itemName: string;
+  itemRef?: string; // cached ItemRef.value
+  amount: number;
+  qty?: number;
+  unitPrice?: number;
+  serviceDate?: Date;
+  description?: string;
+}
+
+export interface CreateInvoiceInput {
+  customerRef: string;
+  docNumber: string;
+  lines: QboInvoiceLineInput[];
+}
+
+/**
+ * Pre-flight (blueprint v2 §6): QBO must have "Custom transaction numbers" ON,
+ * or it ignores our DocNumber and auto-numbers — silently breaking both the
+ * invoice-number scheme and the DocNumber idempotency guard. Refuse to run if off.
+ */
+export async function assertCustomTxnNumbersEnabled(): Promise<void> {
+  const res = await qboQuery<{
+    QueryResponse?: { Preferences?: { SalesFormsPrefs?: { CustomTxnNumbers?: boolean } }[] };
+  }>("SELECT * FROM Preferences");
+  const enabled =
+    res.QueryResponse?.Preferences?.[0]?.SalesFormsPrefs?.CustomTxnNumbers ?? false;
+  if (!enabled) {
+    throw new Error(
+      "QBO 'Custom transaction numbers' is OFF. Enable it (Account and Settings → " +
+        "Sales → Sales form content) before running, or QBO auto-numbers invoices " +
+        "and DocNumber idempotency breaks.",
+    );
+  }
+}
+
+/** Find a customer by DisplayName; create if missing. Returns its id. */
+export async function ensureCustomer(displayName: string): Promise<string> {
+  const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string }[] } }>(
+    `SELECT * FROM Customer WHERE DisplayName = '${displayName.replace(/'/g, "\\'")}'`,
+  );
+  const existing = found.QueryResponse?.Customer?.[0];
+  if (existing) return existing.Id;
+
+  const created = await qboPost<{ Customer: { Id: string } }>("customer", {
+    DisplayName: displayName,
+  });
+  return created.Customer.Id;
+}
+
+/** Resolve an Item (Product/Service) id by exact name; must already exist in QBO. */
+export async function ensureItem(itemName: string): Promise<string> {
+  const found = await qboQuery<{ QueryResponse?: { Item?: { Id: string }[] } }>(
+    `SELECT * FROM Item WHERE Name = '${itemName.replace(/'/g, "\\'")}'`,
+  );
+  const existing = found.QueryResponse?.Item?.[0];
+  if (!existing) {
+    throw new Error(
+      `QBO Item "${itemName}" not found. Create it in QBO (names must match exactly).`,
+    );
+  }
+  return existing.Id;
+}
+
+/** Secondary idempotency guard (blueprint §6): adopt an existing invoice by DocNumber. */
+export async function findInvoiceByDocNumber(
+  docNumber: string,
+): Promise<string | null> {
+  const found = await qboQuery<{ QueryResponse?: { Invoice?: { Id: string }[] } }>(
+    `SELECT * FROM Invoice WHERE DocNumber = '${docNumber.replace(/'/g, "\\'")}'`,
+  );
+  return found.QueryResponse?.Invoice?.[0]?.Id ?? null;
+}
+
+export async function createInvoice(
+  input: CreateInvoiceInput,
+): Promise<{ id: string; docNumber: string }> {
+  const Line = input.lines.map((l) => ({
+    DetailType: "SalesItemLineDetail",
+    Amount: l.amount,
+    Description: l.description,
+    SalesItemLineDetail: {
+      ItemRef: { value: l.itemRef } as QboRef,
+      Qty: l.qty ?? 1,
+      ...(l.unitPrice != null ? { UnitPrice: l.unitPrice } : {}),
+      ...(l.serviceDate
+        ? { ServiceDate: l.serviceDate.toISOString().slice(0, 10) }
+        : {}),
+    },
+  }));
+
+  const created = await qboPost<{ Invoice: { Id: string; DocNumber: string } }>(
+    "invoice",
+    {
+      CustomerRef: { value: input.customerRef } as QboRef,
+      DocNumber: input.docNumber,
+      Line,
+    },
+  );
+
+  return { id: created.Invoice.Id, docNumber: created.Invoice.DocNumber };
+}
+
+/** Optional: email the invoice (blueprint §6 "optional send"). */
+export async function sendInvoice(invoiceId: string): Promise<void> {
+  await qboPost(`invoice/${invoiceId}/send`, {});
+}

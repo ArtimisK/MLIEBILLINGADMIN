@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mlie-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mlie
+      POSTGRES_PASSWORD: mlie
+      POSTGRES_DB: mlie
+    # Host 5433 → container 5432 to avoid clashing with a local Postgres on 5432.
+    ports:
+      - "5433:5432"
+    volumes:
+      - mlie_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlie -d mlie"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mlie_pgdata:

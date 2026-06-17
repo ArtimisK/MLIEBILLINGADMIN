@@ -1,0 +1,261 @@
+# Calendar → QuickBooks Invoicing App — Build Blueprint
+
+**Replaces:** the Google Sheets + Zapier pipelines (MLIG lessons "Monthly Invoices" Zap, MLIE entertainment "MLIE Invoicing" Zap).
+**Goal:** one application that reads Google Calendar, turns events into invoices, and pushes them to QuickBooks Online — correctly, idempotently, with no Paths, no 15-column hack, and no duplicate invoices.
+
+---
+
+## 1. Why a rebuild (the original sins we're fixing)
+
+| Problem in the current build | Root cause | How the app fixes it |
+|---|---|---|
+| Duplicate invoices | Dedup depends on a fragile write-back flipping one cell; mis-mapped column = infinite re-bill | Store the QuickBooks invoice ID per billing group; never create twice |
+| YES landing in the wrong column | Sheet layout is column-position-coupled; layout grew, mapping didn't | No positional coupling — data lives in named DB fields |
+| Paths + 3 Code-by-Zapier steps | No-code tools can't loop over a variable list of line items | Real code loops over any number of lessons trivially |
+| Silent drops ("not found", "no emoji") | No exception surface | Explicit review queue; nothing is billed *or* dropped silently |
+| One-row-per-hour throughput | Schedule + single-row lookup | Process a whole billing cycle in one run, on demand or scheduled |
+| Two systems (Apps Script + Zapier) handing off through a sheet | Accreted over time | One codebase, one source of truth |
+
+**Core design rule:** store **one event per record** (long format). Group into invoices *at invoice time, in code*. The wide "15 columns in one row" format is what forced every workaround.
+
+---
+
+## 2. High-level architecture
+
+```
+Google Calendar (lessons cal + gigs cal)
+        │  (Calendar API, read)
+        ▼
+   INGEST  ──► normalize each event → events table (1 row per event)
+        │
+        ▼
+  CLASSIFY  ──► billable | canceled | unconfirmed | unknown-student
+        │            │
+        │            └─► unknown / ambiguous → REVIEW QUEUE (human resolves, adds alias)
+        ▼
+   PARSE   ──► student(s), teacher, instrument, duration → price  (rules + optional LLM)
+        │
+        ▼
+ AGGREGATE ──► MLIG: group by student × billing-month → 1 invoice w/ N lines
+              MLIE: 1 gig → 1 invoice w/ 1 line
+        │
+        ▼
+  PREVIEW  ──► "what will be billed" screen — verify before any write
+        │  (human confirm)
+        ▼
+   PUSH    ──► QuickBooks Online API: find/create customer, map items, create invoice, (optional) send
+        │
+        ▼
+  RECORD   ──► invoices table (qbo_invoice_id, doc_number, status) + audit_log  ← idempotency lives here
+```
+
+The Google Sheet can stay as an optional **read-only mirror** for Lee's comfort, but it is no longer the source of truth or the control valve.
+
+---
+
+## 3. Tech stack (chosen to fit your existing stack)
+
+- **Language/runtime:** Node.js + TypeScript
+- **Framework:** Next.js (API routes + a small dashboard UI) — same as your PWCMS
+- **DB:** PostgreSQL + Drizzle ORM — same as PWCMS
+- **Google:** `googleapis` (Calendar API, OAuth2)
+- **QuickBooks:** Intuit QuickBooks Online Accounting API via REST + `intuit-oauth` for the OAuth2 dance (or the `node-quickbooks` wrapper). Use a **sandbox company** first.
+- **Parsing (optional but recommended):** Claude API with tool use to turn messy titles into structured fields — see §7. (For current models/SDK details: https://docs.claude.com/en/api/overview)
+- **Jobs:** a scheduled route (cron on the VPS, or Vercel Cron) + on-demand "Run cycle" button
+- **Hosting:** your Contabo VPS, or Vercel + a managed Postgres
+- **Build tool:** Claude Code, driven from the prompts in §11
+
+---
+
+## 4. Data model
+
+```
+funding_orgs        (the "Bill to" — ISS, RAYIM, Hamaspik …)
+  id, name, billing_code, qbo_customer_id (nullable until first synced)
+
+students
+  id, full_name, funding_org_id (fk), two_digit_code, active
+
+student_aliases     (handles "Ethan" vs "Ethan H.", "Daniella" → Karol, nicknames)
+  id, student_id (fk), alias (lowercased, unique)
+
+teachers            (Lee, Jack/JD, Erik …) — used to strip teacher from title
+  id, name, aliases[]
+
+price_rules         (duration + instrument → price)
+  id, business_line, instrument, duration_minutes, unit_price, qbo_item_name
+
+calendars
+  id, business_line ('MLIG'|'MLIE'), google_calendar_id
+
+events              (one row per calendar event — the long-format core)
+  id, google_event_id (UNIQUE), calendar_id (fk),
+  start_at, end_at, raw_title,
+  parsed_student_id (nullable), parsed_teacher, parsed_instrument,
+  duration_minutes, unit_price,
+  status ('billable'|'canceled'|'unconfirmed'|'unknown'|'billed'),
+  billing_period (e.g. '2026-05'), confirmed (bool),
+  invoice_id (nullable fk), content_hash
+
+invoices
+  id, business_line, funding_org_id (fk), student_id (nullable, for MLIE null),
+  billing_period, doc_number (e.g. '03ISS0626'),
+  qbo_invoice_id (nullable), status ('draft'|'created'|'sent'|'error'),
+  subtotal, created_at, error_message
+
+invoice_lines
+  id, invoice_id (fk), event_id (fk), service_date, item_name, description, amount
+
+review_queue
+  id, event_id (fk), reason, raw_title, suggested_student_id (nullable),
+  resolved (bool), resolved_by, resolved_at
+
+audit_log
+  id, ts, actor, action, entity, entity_id, detail (jsonb)
+```
+
+**Idempotency keys:**
+- `events.google_event_id UNIQUE` → an event is ingested exactly once.
+- `invoices (business_line, funding_org_id, student_id, billing_period)` UNIQUE → a student's monthly invoice exists at most once.
+- Before any QBO create: if `invoices.qbo_invoice_id` is set, **skip**. This is the single fact that kills duplicate invoices forever.
+
+---
+
+## 5. Core pipeline (the engine)
+
+Each stage is a pure-ish function; the orchestrator runs them per billing cycle.
+
+1. **Ingest(window)** — pull events from each calendar for the date window via Calendar API. Upsert into `events` keyed on `google_event_id`. Compute `content_hash` (title+start+duration) so edits are detectable.
+2. **Classify(event)**
+   - Title contains "OFF TODAY"/"canceled" → `canceled`.
+   - Confirmation signal missing (the current "checkbox") → `unconfirmed`. *(Decide the new confirmation mechanism — see Edge Cases.)*
+   - Student not resolvable → `unknown` → push to `review_queue`.
+   - Else → `billable`.
+3. **Parse(event)** — extract student(s), teacher, instrument, duration. Resolve student via `student_aliases`. Look up price via `price_rules`. (Rules first; LLM fallback for messy titles — §7.)
+4. **Aggregate(billing_period)**
+   - **MLIG:** group billable lesson events by `student_id` → one `invoice` + N `invoice_lines`. Generate `doc_number` = `{two_digit_code}{billing_code}{MMYY}`.
+   - **MLIE:** each gig → one `invoice` + one line.
+5. **Preview** — render the proposed invoices (and the review queue) in the dashboard. Nothing has touched QuickBooks yet.
+6. **Push(confirmed invoices)** — for each invoice without a `qbo_invoice_id`: ensure customer, ensure items, create invoice, store id, mark events `billed`. Optional: send.
+7. **Record** — write `audit_log`, update statuses, (optional) mirror to the Google Sheet.
+
+---
+
+## 6. QuickBooks Online integration
+
+**Auth (once):** OAuth2 authorization-code flow → store the **refresh token** securely; exchange for short-lived access tokens and refresh as needed. Keep `realmId` (the company id). Start against the **sandbox** company, flip to production at cutover.
+
+**Entities you touch:**
+- **Customer** = the funding org (the "Bill to"). Find by `DisplayName`; create if missing; cache `qbo_customer_id` on `funding_orgs`.
+- **Item** (Product/Service) = e.g. "60 Minute Music Lesson (SD)". These must exist in QBO with **exact** names. Query once, cache `ItemRef` ids on `price_rules` (`qbo_item_name`).
+- **Invoice** = `CustomerRef` + `DocNumber` (your scheme) + `Line[]`, each line: `DetailType: SalesItemLineDetail`, `ItemRef`, `Qty`, `UnitPrice`/`Amount`, `ServiceDate`, `Description`.
+
+**Create flow per invoice:**
+```
+ensureCustomer(funding_org)        → qbo_customer_id
+ensureItems(lines)                 → ItemRef per line
+buildInvoicePayload(invoice, lines)
+POST /v3/company/{realmId}/invoice → store qbo_invoice_id, doc_number
+(optional) POST .../invoice/{id}/send
+```
+
+**Idempotency at the API boundary (belt and suspenders):**
+- Primary guard: our `invoices.qbo_invoice_id` check (don't create if present).
+- Secondary: before create, query QBO `SELECT * FROM Invoice WHERE DocNumber = '{doc}'`. If found, adopt that id instead of creating a twin.
+
+**Reference:** Intuit QuickBooks Online Accounting API docs (Invoice, Customer, Item resources) — start in the sandbox developer portal.
+
+---
+
+## 7. Title parsing (the messy part)
+
+Titles are inconsistent: `Jamie & Lee 🎹`, `William, Sophia & Lee 🎹` (two students), `OFF TODAY - Miles & JD 🎹`, `Thomas & Erik 🎤`, trailing spaces, typos ("TOADY"), unknown nicknames.
+
+**Two-layer strategy:**
+1. **Rules layer (fast, free, deterministic):**
+   - Strip status prefixes (`OFF TODAY`, etc.) → set `canceled`/flag.
+   - Detect instrument from emoji (🎹→piano, 🎤→vocal). Missing emoji → flag, don't drop.
+   - Split on `&`; the **last** name = teacher (match against `teachers`); the rest = student(s), split on commas → **emit one billable event per student** (fixes the multi-student drop).
+   - Resolve each student via `student_aliases` (lowercased). No match → `unknown` → review queue.
+2. **LLM fallback (Claude, only when rules are unsure):** send the raw title + the known roster and ask for structured JSON `{students[], teacher, instrument, status}` using tool use / a strict schema. Use it only for titles the rules can't confidently parse, to keep cost trivial. (SDK + tool use: https://docs.claude.com/en/api/overview)
+
+Every parse writes its decision + confidence to `audit_log` so you can tune the rules.
+
+---
+
+## 8. Exception / review queue
+
+Anything not confidently billable goes here instead of being silently dropped or wrongly billed:
+- unknown student, ambiguous multi-name, missing instrument, missing confirmation, price rule not found.
+A human resolves in the dashboard (pick/create student, add an alias, mark canceled). Resolving an `unknown` and adding the alias means the *next* run auto-resolves it. This is the single biggest reliability win over the current silent-skip behavior.
+
+---
+
+## 9. Two business lines, one engine
+
+Use a small **strategy per business line** so the engine stays shared:
+
+```ts
+interface BillingStrategy {
+  classify(event): Status;
+  parse(event): ParsedEvent;
+  aggregate(events): Invoice[];   // MLIG groups by student×month; MLIE = 1:1
+  docNumber(invoice): string;
+}
+```
+- `MligLessonsStrategy` — aggregate by student × billing-month, multi-line.
+- `MlieGigsStrategy` — one invoice per gig, single line (performer fee).
+
+Same ingest, review queue, QBO push, and audit — only classify/parse/aggregate differ.
+
+---
+
+## 10. Delivery phases (each phase is shippable)
+
+- **Phase 0 — Foundations (read-only).** Repo, DB schema, Google Calendar OAuth + fetch, QBO OAuth against sandbox, import roster from the existing Master Sheet. *Exit:* events land in the DB; QBO connection proven.
+- **Phase 1 — Parse + aggregate + preview (no writes).** Rules parser, classifier, review queue, aggregation, a Preview screen that reproduces the current monthly-billing view. *Exit:* preview matches the current sheet for a known month (this is your correctness oracle).
+- **Phase 2 — QBO write with idempotency (behind a confirm button).** Start with **MLIE** (1:1, lowest risk) end-to-end in sandbox, then **MLIG**. Add the double-guard idempotency. *Exit:* invoices appear in QBO sandbox, re-runs create zero duplicates.
+- **Phase 3 — Productionize.** Switch to the real QBO company, add scheduler + send-invoice, dashboard polish (run cycle, review queue, audit). **Decommission both Zaps.** *Exit:* a full real cycle billed from the app.
+- **Phase 4 — Productize (optional).** Multi-tenant (other music schools / agencies), config-driven business lines, per-client QBO connections. This is the SaaS seed.
+
+**For June 24:** do *not* attempt this rebuild under the deadline. Fix the live Zap now; build this in parallel afterward and cut over at a clean month boundary.
+
+---
+
+## 11. Claude Code build prompts (paste these in order)
+
+1. *"Initialize a Next.js + TypeScript project with Drizzle ORM and Postgres. Create the schema from the Data Model in this blueprint (funding_orgs, students, student_aliases, teachers, price_rules, calendars, events, invoices, invoice_lines, review_queue, audit_log) with the stated unique constraints. Generate and run the migration."*
+2. *"Implement Google Calendar OAuth2 and a `fetchEvents(calendarId, startDate, endDate)` function using `googleapis`. Upsert results into the events table keyed on google_event_id, computing content_hash from title+start+duration."*
+3. *"Implement the rules-based title parser per §7: strip status prefixes, detect instrument by emoji, split on '&' (last token = teacher), emit one event per student, resolve via student_aliases, route unresolved to review_queue. Add unit tests using these real titles: [paste a sample of titles from the Sync Log]."*
+4. *"Implement the MLIG and MLIE BillingStrategy classes and the aggregate step. MLIG groups billable events by student × billing_period into one invoice with N lines and doc_number {two_digit_code}{billing_code}{MMYY}. MLIE is 1 gig → 1 invoice."*
+5. *"Build a Preview page that lists proposed invoices and the review queue for a chosen billing_period. No QBO writes."*
+6. *"Implement QBO OAuth2 (sandbox) and ensureCustomer/ensureItems/createInvoice with the double-guard idempotency from §6. Wire a 'Confirm & Push' action that only creates invoices lacking qbo_invoice_id, then marks events billed and writes audit_log."*
+7. *"Add the LLM fallback parser: when the rules parser confidence is low, call the Claude API with tool use to return {students[], teacher, instrument, status} against the known roster; persist the decision to audit_log."*
+8. *"Add a scheduler route to run a cycle, an optional send-invoice step, and a read-only Google Sheet mirror of created invoices."*
+
+---
+
+## 12. Edge cases to design for (don't discover these in production)
+
+- **Multi-student events** → one billable event per student (rules handle it; verify totals).
+- **Cancellations** ("OFF TODAY", "canceled") → `canceled`, never billed.
+- **Confirmation** — the current "checkbox marked" signal: decide the replacement (a calendar color, a tag in the description, or "past events are assumed delivered unless canceled"). Whatever you pick, make it explicit in `classify`.
+- **Unknown nicknames** → review queue + alias capture (don't silently drop).
+- **Mid-cycle price changes / non-standard durations** → price_rules with effective dates; unmatched duration → review queue.
+- **Time zones** → store UTC, render in the business's local zone; billing_period derived in local time.
+- **Edits after billing** → content_hash change on a `billed` event → flag for review, don't silently re-bill.
+- **Refunds / credits** → out of scope v1; handle manually in QBO, log it.
+- **QBO duplicate DocNumber** → secondary idempotency query adopts the existing invoice.
+
+---
+
+## 13. What to reuse from the current system
+
+- The **Master Sheet** is your roster seed — import it once into students / funding_orgs / aliases / price_rules.
+- The **invoice-number scheme** (`{2-digit}{code}{MMYY}`) carries over unchanged → continuity in QBO.
+- The **monthly-billing view** is your Phase-1 correctness oracle: the app's preview should match it for a past month before you trust any writes.
+- The **QBO Product/Service item names** already in use → seed `price_rules.qbo_item_name` from them.
+
+---
+
+*Build order in one line:* read-only foundations → parse + preview (prove it matches the sheet) → sandbox writes with idempotency (MLIE then MLIG) → production + kill the Zaps → (optional) productize.
