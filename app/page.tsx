@@ -1,23 +1,10 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { desc } from "drizzle-orm";
-import { isGoogleConfigured } from "@/lib/google/calendar";
 import { isQboConfigured, getEnvironment } from "@/lib/qbo/auth";
-import { runIngestAndPreview } from "@/lib/pipeline";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
-
-async function runCycle() {
-  "use server";
-  const now   = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  const period = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`;
-  await runIngestAndPreview(start, end, period);
-  revalidatePath("/");
-}
 
 function formatPeriod(period: string) {
   const [y, m] = period.split("-");
@@ -39,8 +26,6 @@ function formatTs(ts: Date) {
 
 function actionLabel(action: string) {
   const map: Record<string, string> = {
-    ingest:           "Calendar synced",
-    classify:         "Events classified",
     confirm_and_push: "Invoices pushed to QuickBooks",
     "push.created":   "Invoice created in QuickBooks",
     "push.error":     "Push error",
@@ -53,10 +38,8 @@ function actionLabel(action: string) {
 export default async function Dashboard() {
   const now    = new Date();
   const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const googleOk = isGoogleConfigured();
-  const qboOk    = await isQboConfigured();
-  const qboEnv   = getEnvironment();
-  const allOk    = googleOk && qboOk;
+  const qboOk  = await isQboConfigured();
+  const qboEnv = getEnvironment();
 
   let recentRuns: { id: number; ts: Date; action: string; detail: unknown }[] = [];
   try {
@@ -69,27 +52,13 @@ export default async function Dashboard() {
 
   return (
     <>
-      {/* Page header */}
       <div className="page-header">
         <h1>{formatPeriod(period)}</h1>
-        <p>Review connections, sync the calendar, and send invoices to QuickBooks.</p>
+        <p>Upload billing sheets, review invoices, and send to QuickBooks.</p>
       </div>
 
       {/* Connections */}
       <div className="integration-grid">
-        <div className="int-card">
-          <div className="int-icon google">📅</div>
-          <div className="int-info">
-            <div className="int-name">Google Calendar</div>
-            <div className="int-status">
-              <span className="status-dot" style={{ background: googleOk ? "var(--green)" : "var(--amber)", boxShadow: googleOk ? "0 0 0 3px var(--green-dim)" : "0 0 0 3px var(--amber-dim)" }} />
-              <span style={{ fontSize: ".84rem", fontWeight: 500, color: googleOk ? "var(--green)" : "var(--amber)" }}>
-                {googleOk ? "Connected" : "Not set up"}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <div className="int-card">
           <div className="int-icon qbo">💼</div>
           <div className="int-info">
@@ -97,7 +66,7 @@ export default async function Dashboard() {
             <div className="int-status">
               <span className="status-dot" style={{ background: qboOk ? "var(--green)" : "var(--amber)", boxShadow: qboOk ? "0 0 0 3px var(--green-dim)" : "0 0 0 3px var(--amber-dim)" }} />
               <span style={{ fontSize: ".84rem", fontWeight: 500, color: qboOk ? "var(--green)" : "var(--amber)" }}>
-                {qboOk ? "Connected" : "Not set up"}
+                {qboOk ? "Connected" : "Not connected — go to Settings"}
               </span>
               <span className="pill neutral" style={{ fontSize: ".65rem" }}>{qboEnv}</span>
             </div>
@@ -120,23 +89,17 @@ export default async function Dashboard() {
       {/* Hero action */}
       <div className="action-card">
         <div>
-          <h2>
-            {allOk
-              ? `Ready to bill ${formatPeriod(period)}`
-              : "Finish setting up to start billing"}
-          </h2>
+          <h2>{qboOk ? `Ready to bill ${formatPeriod(period)}` : "Connect QuickBooks to start billing"}</h2>
           <p>
-            {allOk
-              ? "Pull the latest calendar events and build invoices for review."
-              : "Connect Google Calendar and QuickBooks before running a billing cycle."}
+            {qboOk
+              ? "Upload the monthly Excel sheets, review invoices, then push to QuickBooks."
+              : "Go to Settings and connect QuickBooks before pushing invoices."}
           </p>
         </div>
         <div className="row" style={{ gap: ".75rem" }}>
-          <form action={runCycle}>
-            <button type="submit" className="btn-white" disabled={!googleOk}>
-              ↻ Sync &amp; Build Invoices
-            </button>
-          </form>
+          <Link href="/upload" className="btn-white">
+            ↑ Upload Sheets
+          </Link>
           <Link href={`/preview?period=${period}`} className="btn-ghost-white">
             View Invoices →
           </Link>
@@ -145,6 +108,13 @@ export default async function Dashboard() {
 
       {/* Quick links */}
       <div className="card-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <Link href="/upload" style={{ textDecoration: "none" }}>
+          <div className="stat-tile" style={{ cursor: "pointer" }}>
+            <h3>Upload</h3>
+            <div className="stat-val accent" style={{ fontSize: "1.4rem" }}>Upload →</div>
+            <p className="muted" style={{ fontSize: ".8rem", marginTop: ".1rem" }}>Import MLIG &amp; MLIE sheets</p>
+          </div>
+        </Link>
         <Link href={`/preview?period=${period}`} style={{ textDecoration: "none" }}>
           <div className="stat-tile" style={{ cursor: "pointer" }}>
             <h3>Invoices</h3>
@@ -152,11 +122,11 @@ export default async function Dashboard() {
             <p className="muted" style={{ fontSize: ".8rem", marginTop: ".1rem" }}>Review before sending</p>
           </div>
         </Link>
-        <Link href="/review" style={{ textDecoration: "none" }}>
+        <Link href="/settings" style={{ textDecoration: "none" }}>
           <div className="stat-tile" style={{ cursor: "pointer" }}>
-            <h3>Needs Attention</h3>
-            <div className="stat-val" style={{ fontSize: "1.4rem" }}>Review →</div>
-            <p className="muted" style={{ fontSize: ".8rem", marginTop: ".1rem" }}>Events that need a look</p>
+            <h3>Settings</h3>
+            <div className="stat-val" style={{ fontSize: "1.4rem" }}>Connect →</div>
+            <p className="muted" style={{ fontSize: ".8rem", marginTop: ".1rem" }}>QuickBooks connection</p>
           </div>
         </Link>
       </div>
@@ -171,10 +141,7 @@ export default async function Dashboard() {
             return (
               <div key={run.id} className="run-log-row">
                 <span className="run-ts">{formatTs(run.ts)}</span>
-                <span
-                  className={`pill ${isError ? "bad" : "good"}`}
-                  style={{ fontSize: ".65rem" }}
-                >
+                <span className={`pill ${isError ? "bad" : "good"}`} style={{ fontSize: ".65rem" }}>
                   {isError ? "Error" : "OK"}
                 </span>
                 <span style={{ flex: 1 }}>{actionLabel(run.action)}</span>

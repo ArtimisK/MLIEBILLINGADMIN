@@ -14,7 +14,6 @@ export default function NavLinks() {
       <Link href="/"        className={active("/")}>Dashboard</Link>
       <Link href="/upload"  className={active("/upload")}>Upload</Link>
       <Link href="/preview" className={active("/preview")}>Invoices</Link>
-      <Link href="/review"   className={active("/review")}>Needs Attention</Link>
       <Link href="/settings" className={active("/settings")}>Settings</Link>
     </div>
   );
