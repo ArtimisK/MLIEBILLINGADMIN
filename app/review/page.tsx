@@ -16,6 +16,26 @@ async function resolveItem(formData: FormData) {
   revalidatePath("/review");
 }
 
+function reasonVariant(reason: string): string {
+  const r = reason.toLowerCase();
+  if (r.includes("unresolved") || r.includes("unknown student")) return "warn";
+  if (r.includes("price") || r.includes("pricing"))              return "bad";
+  return "neutral";
+}
+
+function reasonExplain(reason: string): string {
+  const r = reason.toLowerCase();
+  if (r.includes("unresolved student"))
+    return "Student name wasn't recognized — add an alias in the roster.";
+  if (r.includes("unconfirmed"))
+    return "Future event — add a color to the calendar event to mark it confirmed.";
+  if (r.includes("price") || r.includes("pricing"))
+    return "No price rule matches this event's duration or instrument.";
+  if (r.includes("low confidence"))
+    return "Event title is ambiguous — check it and mark resolved if correct.";
+  return "Check the calendar event and mark resolved if it looks right.";
+}
+
 export default async function ReviewPage() {
   let items: (typeof reviewQueue.$inferSelect)[] = [];
   let loadError: string | null = null;
@@ -30,49 +50,59 @@ export default async function ReviewPage() {
 
   return (
     <>
-      <h1>Review queue</h1>
-      <p className="muted">
-        Anything not confidently billable lands here instead of being billed wrong or dropped
-        silently. Resolve an item (and add the alias in the DB) so the next run auto-resolves it.
-      </p>
+      <div className="page-header">
+        <h1>Needs Attention</h1>
+        <p>
+          These calendar events couldn&apos;t be billed automatically.
+          Fix the issue described, then mark each one resolved.
+        </p>
+      </div>
 
       {loadError ? (
         <div className="card">
           <span className="pill bad">Error</span>
-          <p className="muted">{loadError}</p>
+          <p className="muted" style={{ marginTop: ".6rem" }}>{loadError}</p>
         </div>
       ) : items.length === 0 ? (
         <div className="card">
-          <span className="pill good">Empty</span> Nothing waiting for review.
+          <div className="empty">
+            <span className="empty-icon">✓</span>
+            <h2>All clear</h2>
+            <p>Every event has been processed. Nothing needs your attention right now.</p>
+          </div>
         </div>
       ) : (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Raw title</th>
-                <th>Reason</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.rawTitle}</td>
-                  <td className="muted">{item.reason}</td>
-                  <td style={{ textAlign: "right" }}>
-                    <form action={resolveItem}>
-                      <input type="hidden" name="id" value={item.id} />
-                      <button type="submit" className="secondary">
-                        Mark resolved
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div style={{ marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: ".75rem" }}>
+            <span className="pill warn" style={{ fontSize: ".75rem" }}>
+              {items.length} item{items.length !== 1 ? "s" : ""} need attention
+            </span>
+          </div>
+
+          {items.map((item) => (
+            <div key={item.id} className="card" style={{ marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: ".6rem", marginBottom: ".5rem", flexWrap: "wrap" }}>
+                    <span className={`pill ${reasonVariant(item.reason)}`}>{item.reason}</span>
+                  </div>
+                  <p style={{ fontWeight: 600, fontSize: ".95rem", marginBottom: ".3rem" }}>
+                    {item.rawTitle}
+                  </p>
+                  <p className="muted" style={{ fontSize: ".85rem" }}>
+                    {reasonExplain(item.reason)}
+                  </p>
+                </div>
+                <form action={resolveItem} style={{ flexShrink: 0 }}>
+                  <input type="hidden" name="id" value={item.id} />
+                  <button type="submit" className="ghost sm">
+                    ✓ Mark resolved
+                  </button>
+                </form>
+              </div>
+            </div>
+          ))}
+        </>
       )}
     </>
   );

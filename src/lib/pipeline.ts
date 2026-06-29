@@ -162,11 +162,12 @@ export async function buildPreview(
 }
 
 async function enqueueReview(eventId: number, reason: string, rawTitle: string) {
-  // Avoid piling duplicate open items for the same event.
+  // Don't re-add if any row already exists for this event — open or resolved.
+  // Resolved means a human already looked at it; recreating it undoes their decision.
   const existing = await db
     .select({ id: reviewQueue.id })
     .from(reviewQueue)
-    .where(and(eq(reviewQueue.eventId, eventId), eq(reviewQueue.resolved, false)))
+    .where(eq(reviewQueue.eventId, eventId))
     .limit(1);
   if (existing.length) return;
   await db.insert(reviewQueue).values({ eventId, reason, rawTitle });

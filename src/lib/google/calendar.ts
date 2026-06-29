@@ -33,13 +33,17 @@ export function getOAuthClient() {
   return client;
 }
 
-/** Consent URL for the one-time OAuth flow (calendar read-only scope). */
+/** Consent URL for the one-time OAuth flow.
+ *  Requests calendar + Drive.file so a single token covers both. */
 export function getAuthUrl(): string {
   const client = getOAuthClient();
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
-    scope: ["https://www.googleapis.com/auth/calendar.readonly"],
+    scope: [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
   });
 }
 

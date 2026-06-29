@@ -35,13 +35,19 @@ export interface BillingStrategy {
   }): string;
 }
 
-/** Convert a Date to a 'YYYY-MM' billing period in the given local context.
- *  We keep it UTC-stable here; callers needing local-zone derivation pass a
- *  pre-shifted date (blueprint §12 time-zone note). */
+const BUSINESS_TZ = "America/New_York";
+
+/** Convert a Date to 'YYYY-MM' in the business timezone (not UTC). */
 export function toBillingPeriod(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TZ,
+    year: "numeric",
+    month: "2-digit",
+  });
+  const parts = fmt.formatToParts(d);
+  const year  = parts.find((p) => p.type === "year")?.value  ?? String(d.getUTCFullYear());
+  const month = parts.find((p) => p.type === "month")?.value ?? String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 }
 
 /** doc_number = {two_digit_code}{billing_code}{MMYY} (blueprint §4/§13). */

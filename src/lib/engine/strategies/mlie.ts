@@ -1,4 +1,6 @@
 // MLIE entertainment: each gig → one invoice with a single line (performer fee).
+// Customer = venue, extracted from the event title (anything after " @ ").
+// Falls back to "Music Lee Inclined Entertainment" if no venue marker is found.
 
 import type { NormalizedEvent, ProposedInvoice, RosterContext } from "../types";
 import { parseTitle } from "../parse";
@@ -9,15 +11,28 @@ import {
   round2,
 } from "./base";
 
+const MLIE_DEFAULT_CUSTOMER = "Music Lee Inclined Entertainment";
+
+/** Pull venue name from title: "Gig @ Brooklyn Bowl & Lee 🎸" → "Brooklyn Bowl" */
+function extractVenue(rawTitle: string): string | undefined {
+  // Pattern: @ VenueName (before & teacher or end of string)
+  const atMatch = rawTitle.match(/@\s*([^&@]+?)(?:\s*&|\s*$)/);
+  if (atMatch) return atMatch[1].trim();
+
+  // Pattern: "at VenueName" (case-insensitive, before & or end)
+  const atWordMatch = rawTitle.match(/\bat\s+([^&@\u{1F000}-\u{1FFFF}]+?)(?:\s*&|\s*$)/u);
+  if (atWordMatch) return atWordMatch[1].trim();
+
+  return undefined;
+}
+
 export class MlieGigsStrategy implements BillingStrategy {
   readonly businessLine = "MLIE" as const;
 
   parse(event: NormalizedEvent, roster: RosterContext) {
-    // Gigs are looser; we still run the rules parser to pull instrument/teacher,
-    // but a gig does not require a resolved student.
     const result = parseTitle(event.rawTitle, roster);
-    // A gig with an unresolved "student" is still billable as a 1:1 invoice;
-    // upgrade unknown→billable unless it was an explicit cancellation.
+    // Gigs don't require a resolved student; upgrade unknown→billable
+    // unless it was an explicit cancellation.
     if (result.status === "unknown") {
       return { ...result, status: "billable" as const };
     }
@@ -38,11 +53,13 @@ export class MlieGigsStrategy implements BillingStrategy {
       const amount = round2(e.unitPrice);
       const twoDigit = e.studentTwoDigitCode ?? String(idx + 1).padStart(2, "0");
       const billingCode = e.fundingBillingCode ?? "MLIE";
+      const venueName = extractVenue(e.description) ?? MLIE_DEFAULT_CUSTOMER;
       return {
         businessLine: "MLIE" as const,
         fundingOrgId: e.fundingOrgId,
         studentId: e.studentId,
         billingPeriod: e.billingPeriod,
+        venueName,
         docNumber: this.docNumber({
           twoDigitCode: twoDigit,
           billingCode,

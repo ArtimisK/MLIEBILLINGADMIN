@@ -48,7 +48,7 @@ export interface ParseResult {
 
 /** A proposed invoice produced by a billing strategy (pre-QBO). */
 export interface ProposedInvoiceLine {
-  eventGoogleId: string;
+  eventGoogleId?: string; // undefined for Excel-imported lines (no backing calendar event)
   serviceDate: Date;
   itemName: string;
   description: string;
@@ -63,4 +63,6 @@ export interface ProposedInvoice {
   docNumber: string;
   lines: ProposedInvoiceLine[];
   subtotal: number;
+  /** MLIE only: venue name used as the QBO customer instead of funding org. */
+  venueName?: string;
 }

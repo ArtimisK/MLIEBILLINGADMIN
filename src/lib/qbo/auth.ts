@@ -1,17 +1,24 @@
-// QuickBooks Online OAuth2 (blueprint §6). Uses intuit-oauth for the token
-// dance. We persist the refresh token in env for v1; a DB-backed token store is
-// a Phase-3 hardening item.
-
 import OAuthClient from "intuit-oauth";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { appState } from "@/db/schema";
 import { getRefreshToken, saveRefreshToken } from "./token-store";
 
-export function isQboConfigured(): boolean {
-  return Boolean(
-    process.env.QBO_CLIENT_ID &&
-      process.env.QBO_CLIENT_SECRET &&
-      process.env.QBO_REALM_ID &&
-      process.env.QBO_REFRESH_TOKEN,
-  );
+/** Realm ID is stored in DB after the OAuth flow; falls back to env for legacy compat. */
+export async function getRealmId(): Promise<string | null> {
+  const row = await db
+    .select()
+    .from(appState)
+    .where(eq(appState.key, "qbo_realm_id"))
+    .limit(1);
+  if (row.length) return row[0].value;
+  return process.env.QBO_REALM_ID ?? null;
+}
+
+export async function isQboConfigured(): Promise<boolean> {
+  if (!process.env.QBO_CLIENT_ID || !process.env.QBO_CLIENT_SECRET) return false;
+  const [token, realm] = await Promise.all([getRefreshToken(), getRealmId()]);
+  return Boolean(token && realm);
 }
 
 export function getEnvironment(): "sandbox" | "production" {
@@ -44,9 +51,9 @@ export function getAuthUri(): string {
 
 /** Exchange the stored refresh token for a fresh short-lived access token. */
 export async function getAccessToken(): Promise<string> {
-  if (!isQboConfigured()) {
+  if (!(await isQboConfigured())) {
     throw new Error(
-      "QuickBooks is not configured. Fill QBO_* values in .env (see .env.example).",
+      "QuickBooks is not connected. Go to Settings → Connect QuickBooks.",
     );
   }
   const client = createOAuthClient();

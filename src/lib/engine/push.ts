@@ -11,7 +11,9 @@ import {
   ensureItem,
   findInvoiceByDocNumber,
 } from "@/lib/qbo/invoice";
+import { qboGetPdf } from "@/lib/qbo/client";
 import { isQboConfigured } from "@/lib/qbo/auth";
+import { isDriveConfigured, uploadInvoicePdf } from "@/lib/drive/upload";
 import { audit } from "./record";
 import type { ProposedInvoice } from "./types";
 
@@ -51,16 +53,17 @@ export async function persistDrafts(
         docNumber: inv.docNumber,
         status: "draft",
         subtotal: String(inv.subtotal),
+        venueName: inv.venueName ?? null,
       })
       .returning();
 
     // Link lines to their source events so we can mark them billed later.
+    // Excel-imported lines have no eventGoogleId so eventId stays null.
     for (const line of inv.lines) {
-      const ev = await db
-        .select({ id: events.id })
-        .from(events)
-        .where(eq(events.googleEventId, line.eventGoogleId))
-        .limit(1);
+      const ev = line.eventGoogleId
+        ? await db.select({ id: events.id }).from(events)
+            .where(eq(events.googleEventId, line.eventGoogleId)).limit(1)
+        : [];
       await db.insert(invoiceLines).values({
         invoiceId: row.id,
         eventId: ev[0]?.id ?? null,
@@ -135,17 +138,23 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
         continue;
       }
 
-      // Resolve customer (funding org name).
-      const org = inv.fundingOrgId
-        ? (
-            await db
-              .select()
-              .from(fundingOrgs)
-              .where(eq(fundingOrgs.id, inv.fundingOrgId))
-              .limit(1)
-          )[0]
-        : undefined;
-      const customerRef = await ensureCustomer(org?.name ?? "Unknown Customer");
+      // Resolve customer: MLIE uses venue name; MLIG uses funding org.
+      let customerName: string;
+      if (inv.venueName) {
+        customerName = inv.venueName;
+      } else if (inv.fundingOrgId) {
+        const org = (
+          await db
+            .select()
+            .from(fundingOrgs)
+            .where(eq(fundingOrgs.id, inv.fundingOrgId))
+            .limit(1)
+        )[0];
+        customerName = org?.name ?? "Unknown Customer";
+      } else {
+        customerName = "Unknown Customer";
+      }
+      const customerRef = await ensureCustomer(customerName);
 
       // Resolve lines + item refs.
       const lines = await db
@@ -176,6 +185,24 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
       });
 
       await markInvoicePushed(inv.id, created.id, "created");
+
+      // Optional: upload QBO invoice PDF to Google Drive (non-fatal).
+      if (isDriveConfigured()) {
+        try {
+          const pdf = await qboGetPdf(`invoice/${created.id}/pdf`);
+          const driveFileId = await uploadInvoicePdf(inv.docNumber, pdf);
+          await db
+            .update(invoices)
+            .set({ driveFileId })
+            .where(eq(invoices.id, inv.id));
+          await audit("system", "drive.uploaded", "invoice", inv.id, { driveFileId });
+        } catch (driveErr) {
+          await audit("system", "drive.error", "invoice", inv.id, {
+            error: driveErr instanceof Error ? driveErr.message : String(driveErr),
+          });
+        }
+      }
+
       outcomes.push({
         invoiceId: inv.id,
         docNumber: inv.docNumber,

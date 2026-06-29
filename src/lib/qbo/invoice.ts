@@ -102,8 +102,11 @@ export async function createInvoice(
   const created = await qboPost<{ Invoice: { Id: string; DocNumber: string } }>(
     "invoice",
     {
-      CustomerRef: { value: input.customerRef } as QboRef,
-      DocNumber: input.docNumber,
+      CustomerRef:  { value: input.customerRef } as QboRef,
+      CurrencyRef:  { value: "USD", name: "United States Dollar" },
+      DocNumber:    input.docNumber,
+      TxnTaxDetail: { TotalTax: 0 },
+      SalesTermRef: { value: "3" }, // Net 30
       Line,
     },
   );
@@ -111,7 +114,7 @@ export async function createInvoice(
   return { id: created.Invoice.Id, docNumber: created.Invoice.DocNumber };
 }
 
-/** Optional: email the invoice (blueprint §6 "optional send"). */
-export async function sendInvoice(invoiceId: string): Promise<void> {
-  await qboPost(`invoice/${invoiceId}/send`, {});
+/** Email the invoice via QBO. sendTo must be a valid email address. */
+export async function sendInvoice(invoiceId: string, sendTo: string): Promise<void> {
+  await qboPost(`invoice/${invoiceId}/send`, {}, { sendTo });
 }
