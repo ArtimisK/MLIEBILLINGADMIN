@@ -21,7 +21,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 # Standalone Next.js output
 COPY --from=builder --chown=appuser:appgroup /app/.next/standalone ./
 COPY --from=builder --chown=appuser:appgroup /app/.next/static ./.next/static
-COPY --from=builder --chown=appuser:appgroup /app/public ./public
+RUN mkdir -p ./public
 
 # Migration files + script (needed by the migrate service)
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
