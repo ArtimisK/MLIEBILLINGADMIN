@@ -7,11 +7,7 @@ export default function SignOutButton() {
 
   return (
     <form action="/api/auth/logout" method="POST" style={{ display: "inline" }}>
-      <button
-        type="submit"
-        className="ghost sm"
-        style={{ color: "var(--sub)", boxShadow: "none", border: "none", background: "none" }}
-      >
+      <button type="submit" className="nav-signout">
         Sign out
       </button>
     </form>

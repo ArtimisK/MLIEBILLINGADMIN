@@ -12,14 +12,11 @@ async function login(formData: FormData) {
   "use server";
   const email    = String(formData.get("email")    ?? "").toLowerCase().trim();
   const password = String(formData.get("password") ?? "");
-
   const expectedEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
-  const expectedPw    = process.env.ADMIN_PASSWORD ?? "";
-
+  const expectedPw    =  process.env.ADMIN_PASSWORD ?? "";
   if (!email || !password || email !== expectedEmail || password !== expectedPw) {
     redirect("/login?error=1");
   }
-
   const token = makeToken(email, password);
   const jar   = await cookies();
   jar.set("mli-auth", token, {
@@ -32,49 +29,67 @@ async function login(formData: FormData) {
   redirect("/");
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "var(--ground)",
-      }}
-    >
-      <div
-        className="card"
-        style={{ width: "100%", maxWidth: "380px", textAlign: "center" }}
-      >
-        <div style={{ fontSize: "2rem", marginBottom: ".5rem" }}>♩</div>
-        <h1 style={{ fontSize: "1.25rem", marginBottom: ".25rem" }}>MLI Billing</h1>
-        <p className="muted" style={{ fontSize: ".85rem", marginBottom: "1.5rem" }}>
-          Sign in to continue
-        </p>
+  const sp       = await searchParams;
+  const hasError = sp.error === "1";
 
-        <form action={login} style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
-          <input
-            type="email"
-            name="email"
-            placeholder="Email"
-            autoComplete="email"
-            autoFocus
-            required
-          />
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            autoComplete="current-password"
-            required
-          />
-          <button type="submit">Sign in</button>
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+
+        {/* Brand */}
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div className="login-logo-mark">♩</div>
+          <h1 className="login-title">MLI Billing</h1>
+          <p className="login-sub">Sign in to your account</p>
+        </div>
+
+        {/* Form */}
+        <form action={login} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: ".4rem" }}>
+            <label className="login-label">Email address</label>
+            <input
+              type="email"
+              name="email"
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoFocus
+              required
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: ".4rem" }}>
+            <label className="login-label">Password</label>
+            <input
+              type="password"
+              name="password"
+              placeholder="••••••••"
+              autoComplete="current-password"
+              required
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          {hasError && (
+            <div className="login-error">
+              Incorrect email or password. Please try again.
+            </div>
+          )}
+
+          <button
+            type="submit"
+            style={{ marginTop: ".4rem", width: "100%", justifyContent: "center", fontSize: ".95rem", padding: ".75rem" }}
+          >
+            Sign in →
+          </button>
         </form>
+
+        <p className="login-footer">Music Lee Inclined · Billing Platform</p>
       </div>
     </div>
   );
