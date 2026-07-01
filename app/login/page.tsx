@@ -8,14 +8,9 @@ function makeToken(password: string): string {
 
 async function login(formData: FormData) {
   "use server";
-  const email      = String(formData.get("email")    ?? "").toLowerCase().trim();
   const password   = String(formData.get("password") ?? "");
   const expectedPw = process.env.ADMIN_PASSWORD ?? "";
-  const expectedEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
-
-  // Both must match. If ADMIN_EMAIL is not set, only password is checked.
-  const emailOk = !expectedEmail || email === expectedEmail;
-  if (!password || password !== expectedPw || !emailOk) {
+  if (!password || password !== expectedPw) {
     redirect("/login?error=1");
   }
   const token = makeToken(password);
