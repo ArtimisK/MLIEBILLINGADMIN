@@ -6,6 +6,7 @@ import { isQboConfigured } from "@/lib/qbo/auth";
 import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
 import { invoices, fundingOrgs } from "@/db/schema";
+import SubmitButton from "@/app/components/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -297,9 +298,7 @@ export default async function PreviewPage({
             </p>
           </div>
           <form action={pushAllDrafts}>
-            <button type="submit" className="lg" disabled={!qboOk}>
-              Push All Periods →
-            </button>
+            <SubmitButton label="Push All Periods →" loadingLabel="Pushing all…" className="lg" disabled={!qboOk} />
           </form>
         </div>
       )}
@@ -407,9 +406,7 @@ export default async function PreviewPage({
               </div>
               <form action={push}>
                 <input type="hidden" name="period" value={period} />
-                <button type="submit" className="lg" disabled={!qboOk}>
-                  Send to QuickBooks →
-                </button>
+                <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
               </form>
             </div>
           )}
@@ -473,9 +470,7 @@ export default async function PreviewPage({
             </div>
             <form action={pushDrafts}>
               <input type="hidden" name="period" value={period} />
-              <button type="submit" className="lg" disabled={!qboOk}>
-                Send to QuickBooks →
-              </button>
+              <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
             </form>
           </div>
         </div>

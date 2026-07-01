@@ -4,10 +4,12 @@ import type { NextRequest } from "next/server";
 // Routes that never require auth
 const PUBLIC = ["/login", "/api/"];
 
-async function tokenFor(pw: string): Promise<string> {
+async function expectedToken(): Promise<string> {
+  const email    = (process.env.ADMIN_EMAIL    ?? "").toLowerCase().trim();
+  const password =  process.env.ADMIN_PASSWORD ?? "";
   const buf = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(pw + ":mli-billing-v1"),
+    new TextEncoder().encode(`${email}:${password}:mli-billing-v1`),
   );
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -22,8 +24,8 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (PUBLIC.some((p) => path.startsWith(p))) return NextResponse.next();
 
-  const expected = await tokenFor(pw);
-  const cookie = req.cookies.get("mli-auth")?.value;
+  const expected = await expectedToken();
+  const cookie   = req.cookies.get("mli-auth")?.value;
 
   if (cookie === expected) return NextResponse.next();
 

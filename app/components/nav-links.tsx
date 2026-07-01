@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 
 export default function NavLinks() {
   const path = usePathname();
+  if (path === "/login") return null;
+
   const active = (href: string) =>
     path === href || (href !== "/" && path.startsWith(href))
       ? "nav-link active"

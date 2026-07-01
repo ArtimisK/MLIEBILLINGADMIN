@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import NavLinks from "./components/nav-links";
+import SignOutButton from "./components/sign-out-button";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,17 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             MLI Billing
           </Link>
           <NavLinks />
-          {process.env.ADMIN_PASSWORD && (
-            <form action="/api/auth/logout" method="POST" style={{ display: "inline" }}>
-              <button
-                type="submit"
-                className="ghost sm"
-                style={{ color: "var(--sub)", boxShadow: "none", border: "none", background: "none" }}
-              >
-                Sign out
-              </button>
-            </form>
-          )}
+          {process.env.ADMIN_PASSWORD && <SignOutButton />}
         </nav>
         <main>{children}</main>
       </body>
