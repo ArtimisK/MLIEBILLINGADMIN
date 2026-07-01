@@ -3,9 +3,8 @@ import { redirect } from "next/navigation";
 import { createHash } from "crypto";
 
 function makeToken(email: string, password: string): string {
-  return createHash("sha256")
-    .update(`${email.toLowerCase().trim()}:${password}:mli-billing-v1`)
-    .digest("hex");
+  const payload = email ? `${email}:${password}:mli-billing-v1` : `${password}:mli-billing-v1`;
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 async function login(formData: FormData) {
@@ -14,7 +13,8 @@ async function login(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const expectedEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
   const expectedPw    =  process.env.ADMIN_PASSWORD ?? "";
-  if (!email || !password || email !== expectedEmail || password !== expectedPw) {
+  const emailOk = !expectedEmail || email === expectedEmail; // skip check if ADMIN_EMAIL not set
+  if (!password || !emailOk || password !== expectedPw) {
     redirect("/login?error=1");
   }
   const token = makeToken(email, password);
