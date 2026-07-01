@@ -260,7 +260,7 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
     }
 
     const billingPeriod = toPeriod(serviceDate);
-    const itemName = "Entertainment";
+    const itemName = "60-Minute Music Performance";
 
     invoices.push({
       businessLine: "MLIE",
