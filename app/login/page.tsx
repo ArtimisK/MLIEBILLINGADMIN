@@ -54,17 +54,15 @@ export default async function LoginPage({
 
   return (
     <>
-      {/* Fixed full-viewport background */}
-      <div style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: -1,
-        background: `
-          radial-gradient(ellipse 60% 50% at 20% 30%, rgba(79,70,229,.32) 0%, transparent 100%),
-          radial-gradient(ellipse 50% 60% at 80% 70%, rgba(99,102,241,.24) 0%, transparent 100%),
-          linear-gradient(160deg, #0d1117 0%, #13111e 45%, #0d1117 100%)
-        `,
-      }} />
+      {/* Set dark gradient on body — avoids CSS transform interference from main's fadeUp animation */}
+      <style>{`
+        body {
+          background:
+            radial-gradient(ellipse 60% 50% at 20% 30%, rgba(79,70,229,.32) 0%, transparent 100%),
+            radial-gradient(ellipse 50% 60% at 80% 70%, rgba(99,102,241,.24) 0%, transparent 100%),
+            linear-gradient(160deg, #0d1117 0%, #13111e 45%, #0d1117 100%) !important;
+        }
+      `}</style>
 
       {/* Centered card */}
       <div style={{
