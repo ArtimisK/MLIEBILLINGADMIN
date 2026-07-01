@@ -730,8 +730,13 @@ hr {
 
 /* ── Login page ──────────────────────────────────────────────── */
 .login-wrap {
-  /* Escape main's padding so it fills full height below nav */
-  margin: -2.75rem -1.75rem -6rem;
+  /* Full-bleed breakout from max-width container */
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  margin-top: -2.75rem;
+  margin-bottom: -6rem;
   min-height: calc(100vh - var(--nav-h));
   display: flex;
   align-items: center;
