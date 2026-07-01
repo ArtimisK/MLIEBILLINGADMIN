@@ -21,6 +21,7 @@ export interface QboInvoiceLineInput {
 export interface CreateInvoiceInput {
   customerRef: string;
   docNumber: string;
+  txnDate?: string; // YYYY-MM-DD — invoice date shown in QBO
   lines: QboInvoiceLineInput[];
 }
 
@@ -105,6 +106,7 @@ export async function createInvoice(
       CustomerRef:  { value: input.customerRef } as QboRef,
       CurrencyRef:  { value: "USD", name: "United States Dollar" },
       DocNumber:    input.docNumber,
+      ...(input.txnDate ? { TxnDate: input.txnDate } : {}),
       TxnTaxDetail: { TotalTax: 0 },
       SalesTermRef: { value: "3" }, // Net 30
       Line,

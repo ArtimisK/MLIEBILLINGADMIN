@@ -178,9 +178,13 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
         });
       }
 
+      // Invoice date = 1st of the billing month (e.g. 2026-07 → 2026-07-01)
+      const txnDate = inv.billingPeriod ? `${inv.billingPeriod}-01` : undefined;
+
       const created = await createInvoice({
         customerRef,
         docNumber: inv.docNumber,
+        txnDate,
         lines: qboLines,
       });
 
