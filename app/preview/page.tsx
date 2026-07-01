@@ -6,7 +6,7 @@ import { isQboConfigured } from "@/lib/qbo/auth";
 import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
 import { invoices, fundingOrgs } from "@/db/schema";
-import SubmitButton from "@/app/components/submit-button";
+import SubmitButton from "../components/submit-button";
 
 export const dynamic = "force-dynamic";
 
