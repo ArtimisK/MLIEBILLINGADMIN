@@ -54,8 +54,9 @@ export default async function LoginPage({
 
   return (
     <>
-      {/* Set dark gradient on body — avoids CSS transform interference from main's fadeUp animation */}
+      {/* Dark background on both html and body so no gray edges show anywhere */}
       <style>{`
+        html { background: #0d1117 !important; }
         body {
           background:
             radial-gradient(ellipse 60% 50% at 20% 30%, rgba(79,70,229,.32) 0%, transparent 100%),
