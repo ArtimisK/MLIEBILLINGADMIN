@@ -2,22 +2,18 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash } from "crypto";
 
-function makeToken(email: string, password: string): string {
-  const payload = email ? `${email}:${password}:mli-billing-v1` : `${password}:mli-billing-v1`;
-  return createHash("sha256").update(payload).digest("hex");
+function makeToken(password: string): string {
+  return createHash("sha256").update(password + ":mli-billing-v1").digest("hex");
 }
 
 async function login(formData: FormData) {
   "use server";
-  const email    = String(formData.get("email")    ?? "").toLowerCase().trim();
-  const password = String(formData.get("password") ?? "");
-  const expectedEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase().trim();
-  const expectedPw    =  process.env.ADMIN_PASSWORD ?? "";
-  const emailOk = !expectedEmail || email === expectedEmail;
-  if (!password || !emailOk || password !== expectedPw) {
+  const password   = String(formData.get("password") ?? "");
+  const expectedPw = process.env.ADMIN_PASSWORD ?? "";
+  if (!password || password !== expectedPw) {
     redirect("/login?error=1");
   }
-  const token = makeToken(expectedEmail, password);
+  const token = makeToken(password);
   const jar   = await cookies();
   jar.set("mli-auth", token, {
     httpOnly: true,
