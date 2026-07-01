@@ -260,7 +260,7 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
     }
 
     const billingPeriod = toPeriod(serviceDate);
-    const itemName = time ? `Entertainment ${time}` : "Entertainment";
+    const itemName = "Entertainment";
 
     invoices.push({
       businessLine: "MLIE",
@@ -273,7 +273,7 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
         {
           serviceDate,
           itemName,
-          description: performerName || itemName,
+          description: [performerName, time].filter(Boolean).join(" · ") || itemName,
           amount,
         },
       ],
