@@ -1,19 +1,18 @@
 "use client";
+import { deleteDraft, clearPeriodDrafts } from "../actions/drafts";
 
 export function DeleteDraftButton({
   id,
   period,
   docNumber,
-  action,
 }: {
   id: number;
   period: string;
   docNumber: string;
-  action: (f: FormData) => Promise<void>;
 }) {
   return (
     <form
-      action={action}
+      action={deleteDraft}
       onSubmit={(e) => {
         if (!confirm(`Delete draft ${docNumber}?`)) e.preventDefault();
       }}
@@ -35,26 +34,20 @@ export function DeleteDraftButton({
 export function ClearDraftsButton({
   period,
   count,
-  action,
 }: {
   period: string;
   count: number;
-  action: (f: FormData) => Promise<void>;
 }) {
   return (
     <form
-      action={action}
+      action={clearPeriodDrafts}
       onSubmit={(e) => {
         if (!confirm(`Delete all ${count} draft invoices for ${period}? This cannot be undone.`))
           e.preventDefault();
       }}
     >
       <input type="hidden" name="period" value={period} />
-      <button
-        type="submit"
-        className="ghost"
-        style={{ color: "var(--red)" }}
-      >
+      <button type="submit" className="ghost" style={{ color: "var(--red)" }}>
         🗑 Clear all drafts
       </button>
     </form>

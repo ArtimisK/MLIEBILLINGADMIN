@@ -5,7 +5,7 @@ import { pushInvoices } from "@/lib/engine/push";
 import { isQboConfigured } from "@/lib/qbo/auth";
 import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
-import { invoices, invoiceLines, fundingOrgs } from "@/db/schema";
+import { invoices, fundingOrgs } from "@/db/schema";
 import SubmitButton from "../components/submit-button";
 import { DeleteDraftButton, ClearDraftsButton } from "../components/delete-draft-button";
 
@@ -182,29 +182,6 @@ export default async function PreviewPage({
     } else {
       redirect(`/preview?period=${period}&pushed=${pushed}&errors=${errors}`);
     }
-  }
-
-  async function deleteDraft(formData: FormData) {
-    "use server";
-    const id = Number(formData.get("id"));
-    const p  = String(formData.get("period") ?? currentPeriod());
-    await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, id));
-    await db.delete(invoices).where(and(eq(invoices.id, id), eq(invoices.status, "draft")));
-    redirect(`/preview?period=${p}`);
-  }
-
-  async function clearPeriodDrafts(formData: FormData) {
-    "use server";
-    const p = String(formData.get("period") ?? currentPeriod());
-    const draftIds = await db
-      .select({ id: invoices.id })
-      .from(invoices)
-      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "draft")));
-    if (draftIds.length > 0) {
-      await db.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, draftIds.map((r) => r.id)));
-      await db.delete(invoices).where(inArray(invoices.id, draftIds.map((r) => r.id)));
-    }
-    redirect(`/preview?period=${p}&cleared=1`);
   }
 
   async function emailInvoice(formData: FormData) {
@@ -495,7 +472,6 @@ export default async function PreviewPage({
                         id={r.id}
                         period={period}
                         docNumber={r.docNumber}
-                        action={deleteDraft}
                       />
                     </td>
                   </tr>
@@ -517,7 +493,6 @@ export default async function PreviewPage({
               <ClearDraftsButton
                 period={period}
                 count={draftRows.length}
-                action={clearPeriodDrafts}
               />
               <form action={pushDrafts}>
                 <input type="hidden" name="period" value={period} />
