@@ -18,7 +18,7 @@ async function getIp(): Promise<string> {
 
 async function login(formData: FormData) {
   "use server";
-  const ip         = await getIp();
+  const ip = await getIp();
   const { allowed } = checkLimit(ip);
   if (!allowed) redirect("/login?error=locked");
 
@@ -53,85 +53,63 @@ export default async function LoginPage({
   const hasError = sp.error === "1";
 
   return (
-    <>
-      {/* Dark background on both html and body so no gray edges show anywhere */}
-      <style>{`
-        html { background: #0d1117 !important; }
-        body {
-          background:
-            radial-gradient(ellipse 60% 50% at 20% 30%, rgba(79,70,229,.32) 0%, transparent 100%),
-            radial-gradient(ellipse 50% 60% at 80% 70%, rgba(99,102,241,.24) 0%, transparent 100%),
-            linear-gradient(160deg, #0d1117 0%, #13111e 45%, #0d1117 100%) !important;
-        }
-      `}</style>
-
-      {/* Centered card */}
-      <div style={{
-        minHeight: "calc(100vh - 60px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "2rem 1rem",
-      }}>
-        <div className="login-card">
-
-          {/* Brand */}
-          <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-            <div className="login-logo-mark">♩</div>
-            <h1 className="login-title">MLI Billing</h1>
-            <p className="login-sub">Sign in to your account</p>
-          </div>
-
-          {/* Form */}
-          <form action={login} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: ".4rem" }}>
-              <label className="login-label">Email address</label>
-              <input
-                type="email"
-                name="email"
-                placeholder="you@example.com"
-                autoComplete="email"
-                autoFocus
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: ".4rem" }}>
-              <label className="login-label">Password</label>
-              <input
-                type="password"
-                name="password"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            {isLocked && (
-              <div className="login-error" style={{ background: "#fef3c7", border: "1px solid #fcd34d", color: "#92400e" }}>
-                Too many failed attempts. Try again in 15 minutes.
-              </div>
-            )}
-            {hasError && !isLocked && (
-              <div className="login-error">
-                Incorrect password. Please try again.
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLocked}
-              style={{ marginTop: ".4rem", width: "100%", justifyContent: "center", fontSize: ".95rem", padding: ".75rem" }}
-            >
-              Sign in →
-            </button>
-          </form>
-
-          <p className="login-footer">Music Lee Inclined · Billing Platform</p>
-        </div>
+    <div className="login-card">
+      {/* Brand */}
+      <div className="login-brand">
+        <div className="login-logo-mark">♩</div>
+        <h1 className="login-title">MLI Billing</h1>
+        <p className="login-sub">Sign in to your account</p>
       </div>
-    </>
+
+      {/* Form */}
+      <form action={login} className="login-form">
+        <div className="login-field">
+          <label className="login-label" htmlFor="email">Email address</label>
+          <input
+            id="email"
+            type="email"
+            name="email"
+            placeholder="you@example.com"
+            autoComplete="email"
+            autoFocus
+            className="login-input"
+          />
+        </div>
+
+        <div className="login-field">
+          <label className="login-label" htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+            className="login-input"
+          />
+        </div>
+
+        {isLocked && (
+          <div className="login-error login-error--warn">
+            Too many failed attempts. Try again in 15 minutes.
+          </div>
+        )}
+        {hasError && !isLocked && (
+          <div className="login-error">
+            Incorrect password. Please try again.
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={isLocked}
+          className="login-btn"
+        >
+          Sign in →
+        </button>
+      </form>
+
+      <p className="login-footer">Music Lee Inclined · Billing Platform</p>
+    </div>
   );
 }

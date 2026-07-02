@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import Link from "next/link";
-import NavLinks from "./components/nav-links";
-import SignOutButton from "./components/sign-out-button";
+import PageShell from "./components/page-shell";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -22,15 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <nav>
-          <Link href="/" className="nav-brand">
-            <span className="mark">♩</span>
-            MLI Billing
-          </Link>
-          <NavLinks />
-          {process.env.ADMIN_PASSWORD && <SignOutButton />}
-        </nav>
-        <main>{children}</main>
+        <PageShell hasPassword={!!process.env.ADMIN_PASSWORD}>
+          {children}
+        </PageShell>
       </body>
     </html>
   );

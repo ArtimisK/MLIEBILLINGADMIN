@@ -5,7 +5,7 @@ import { pushInvoices } from "@/lib/engine/push";
 import { isQboConfigured } from "@/lib/qbo/auth";
 import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
-import { invoices, fundingOrgs } from "@/db/schema";
+import { invoices, invoiceLines, fundingOrgs } from "@/db/schema";
 import SubmitButton from "../components/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +27,7 @@ export default async function PreviewPage({
     emailError?: string;
     uploadErrors?: string;
     uploadErrDetail?: string;
+    cleared?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -38,6 +39,7 @@ export default async function PreviewPage({
   const emailErrMsg      = sp.emailError       ?? null;
   const uploadErrorCount = sp.uploadErrors    != null ? Number(sp.uploadErrors) : null;
   const uploadErrDetail  = sp.uploadErrDetail  ?? null;
+  const wasCleared       = sp.cleared         === "1";
 
   // ── Proposed invoices ───────────────────────────────────────────
   let preview: Awaited<ReturnType<typeof buildPreview>> | null = null;
@@ -181,6 +183,29 @@ export default async function PreviewPage({
     }
   }
 
+  async function deleteDraft(formData: FormData) {
+    "use server";
+    const id = Number(formData.get("id"));
+    const p  = String(formData.get("period") ?? currentPeriod());
+    await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, id));
+    await db.delete(invoices).where(and(eq(invoices.id, id), eq(invoices.status, "draft")));
+    redirect(`/preview?period=${p}`);
+  }
+
+  async function clearPeriodDrafts(formData: FormData) {
+    "use server";
+    const p = String(formData.get("period") ?? currentPeriod());
+    const draftIds = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "draft")));
+    if (draftIds.length > 0) {
+      await db.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, draftIds.map((r) => r.id)));
+      await db.delete(invoices).where(inArray(invoices.id, draftIds.map((r) => r.id)));
+    }
+    redirect(`/preview?period=${p}&cleared=1`);
+  }
+
   async function emailInvoice(formData: FormData) {
     "use server";
     const p         = String(formData.get("period") ?? currentPeriod());
@@ -225,6 +250,16 @@ export default async function PreviewPage({
         <h1>{new Date(period + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })} Invoices</h1>
         <p>Review each invoice below. Nothing is sent to QuickBooks until you click the button at the bottom.</p>
       </div>
+
+      {/* Cleared banner */}
+      {wasCleared && (
+        <div className="card" style={{ borderLeft: "4px solid #f59e0b", background: "#fffbeb", marginBottom: "1.25rem" }}>
+          <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
+            <span className="pill warn">Cleared</span>
+            <span style={{ fontWeight: 600 }}>All drafts for this period have been deleted.</span>
+          </div>
+        </div>
+      )}
 
       {/* Upload success banner */}
       {uploadErrorCount != null && uploadErrorCount > 0 && (
@@ -430,6 +465,7 @@ export default async function PreviewPage({
                   <th>Bill to</th>
                   <th className="num">Amount</th>
                   <th></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -453,6 +489,21 @@ export default async function PreviewPage({
                         ⬇ PDF
                       </a>
                     </td>
+                    <td>
+                      <form action={deleteDraft}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="period" value={period} />
+                        <button
+                          type="submit"
+                          className="ghost sm"
+                          title="Delete this draft"
+                          style={{ color: "var(--red)", padding: ".28rem .55rem" }}
+                          onClick={(e) => { if (!confirm(`Delete draft ${r.docNumber}?`)) e.preventDefault(); }}
+                        >
+                          🗑
+                        </button>
+                      </form>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -468,10 +519,23 @@ export default async function PreviewPage({
                 {qboOk ? "Click to create these in QuickBooks." : "Connect QuickBooks first to enable sending."}
               </p>
             </div>
-            <form action={pushDrafts}>
-              <input type="hidden" name="period" value={period} />
-              <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
-            </form>
+            <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
+              <form action={clearPeriodDrafts}>
+                <input type="hidden" name="period" value={period} />
+                <button
+                  type="submit"
+                  className="ghost"
+                  style={{ color: "var(--red)" }}
+                  onClick={(e) => { if (!confirm(`Delete all ${draftRows.length} draft invoices for ${period}? This cannot be undone.`)) e.preventDefault(); }}
+                >
+                  🗑 Clear all drafts
+                </button>
+              </form>
+              <form action={pushDrafts}>
+                <input type="hidden" name="period" value={period} />
+                <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
+              </form>
+            </div>
           </div>
         </div>
       )}
