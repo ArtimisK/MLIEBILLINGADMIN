@@ -7,7 +7,6 @@ import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
 import { invoices, fundingOrgs } from "@/db/schema";
 import SubmitButton from "../components/submit-button";
-import { DeleteDraftButton, ClearDraftsButton } from "../components/delete-draft-button";
 
 export const dynamic = "force-dynamic";
 
@@ -467,13 +466,6 @@ export default async function PreviewPage({
                         ⬇ PDF
                       </a>
                     </td>
-                    <td>
-                      <DeleteDraftButton
-                        id={r.id}
-                        period={period}
-                        docNumber={r.docNumber}
-                      />
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -490,10 +482,6 @@ export default async function PreviewPage({
               </p>
             </div>
             <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
-              <ClearDraftsButton
-                period={period}
-                count={draftRows.length}
-              />
               <form action={pushDrafts}>
                 <input type="hidden" name="period" value={period} />
                 <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
