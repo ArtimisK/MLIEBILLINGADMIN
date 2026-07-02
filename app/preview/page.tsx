@@ -7,6 +7,7 @@ import { sendInvoice } from "@/lib/qbo/invoice";
 import { db } from "@/db";
 import { invoices, invoiceLines, fundingOrgs } from "@/db/schema";
 import SubmitButton from "../components/submit-button";
+import { DeleteDraftButton, ClearDraftsButton } from "../components/delete-draft-button";
 
 export const dynamic = "force-dynamic";
 
@@ -490,19 +491,12 @@ export default async function PreviewPage({
                       </a>
                     </td>
                     <td>
-                      <form action={deleteDraft}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="period" value={period} />
-                        <button
-                          type="submit"
-                          className="ghost sm"
-                          title="Delete this draft"
-                          style={{ color: "var(--red)", padding: ".28rem .55rem" }}
-                          onClick={(e) => { if (!confirm(`Delete draft ${r.docNumber}?`)) e.preventDefault(); }}
-                        >
-                          🗑
-                        </button>
-                      </form>
+                      <DeleteDraftButton
+                        id={r.id}
+                        period={period}
+                        docNumber={r.docNumber}
+                        action={deleteDraft}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -520,17 +514,11 @@ export default async function PreviewPage({
               </p>
             </div>
             <div style={{ display: "flex", gap: ".75rem", flexWrap: "wrap" }}>
-              <form action={clearPeriodDrafts}>
-                <input type="hidden" name="period" value={period} />
-                <button
-                  type="submit"
-                  className="ghost"
-                  style={{ color: "var(--red)" }}
-                  onClick={(e) => { if (!confirm(`Delete all ${draftRows.length} draft invoices for ${period}? This cannot be undone.`)) e.preventDefault(); }}
-                >
-                  🗑 Clear all drafts
-                </button>
-              </form>
+              <ClearDraftsButton
+                period={period}
+                count={draftRows.length}
+                action={clearPeriodDrafts}
+              />
               <form action={pushDrafts}>
                 <input type="hidden" name="period" value={period} />
                 <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
