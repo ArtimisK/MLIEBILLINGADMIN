@@ -160,30 +160,6 @@ export default async function PreviewPage({
     }
   }
 
-  async function pushAllDrafts() {
-    "use server";
-    const rows = await db
-      .select({ id: invoices.id })
-      .from(invoices)
-      .where(eq(invoices.status, "draft"));
-    const ids = rows.map((r) => r.id);
-    if (!ids.length) redirect(`/preview?period=${period}&pushError=${encodeURIComponent("No pending invoices to push.")}`);
-    let pushed = 0, errors = 0;
-    let errMsg: string | null = null;
-    try {
-      const outcomes = await pushInvoices(ids);
-      pushed = outcomes.filter((o) => o.action !== "error").length;
-      errors = outcomes.filter((o) => o.action === "error").length;
-    } catch (err) {
-      errMsg = err instanceof Error ? err.message : String(err);
-    }
-    if (errMsg) {
-      redirect(`/preview?period=${period}&pushError=${encodeURIComponent(errMsg)}`);
-    } else {
-      redirect(`/preview?period=${period}&pushed=${pushed}&errors=${errors}`);
-    }
-  }
-
   async function emailInvoice(formData: FormData) {
     "use server";
     const p         = String(formData.get("period") ?? currentPeriod());
@@ -209,18 +185,6 @@ export default async function PreviewPage({
 
   const qboOk    = await isQboConfigured();
   const grandTotal = preview?.invoices.reduce((s, i) => s + i.subtotal, 0) ?? 0;
-
-  // All pending draft invoices across every period
-  let allDraftCount = 0;
-  let allDraftTotal = 0;
-  try {
-    const allDrafts = await db
-      .select({ subtotal: invoices.subtotal })
-      .from(invoices)
-      .where(eq(invoices.status, "draft"));
-    allDraftCount = allDrafts.length;
-    allDraftTotal = allDrafts.reduce((s, r) => s + Number(r.subtotal), 0);
-  } catch {}
 
   return (
     <>
@@ -296,23 +260,6 @@ export default async function PreviewPage({
             <span className="pill bad">Email failed</span>
             <span style={{ fontWeight: 600 }}>{emailErrMsg}</span>
           </div>
-        </div>
-      )}
-
-      {/* Push All Periods banner */}
-      {allDraftCount > 0 && (
-        <div className="card" style={{ background: "var(--surface-hi)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
-          <div>
-            <p style={{ fontWeight: 700, fontSize: ".95rem" }}>
-              {allDraftCount} invoice{allDraftCount !== 1 ? "s" : ""} pending across all months — total ${allDraftTotal.toFixed(2)}
-            </p>
-            <p className="muted" style={{ fontSize: ".84rem", marginTop: ".2rem" }}>
-              Push everything from all billing periods at once.
-            </p>
-          </div>
-          <form action={pushAllDrafts}>
-            <SubmitButton label="Push All Periods →" loadingLabel="Pushing all…" className="lg" disabled={!qboOk} />
-          </form>
         </div>
       )}
 

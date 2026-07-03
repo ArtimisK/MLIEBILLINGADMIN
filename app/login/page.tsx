@@ -22,10 +22,18 @@ async function login(formData: FormData) {
   const { allowed } = checkLimit(ip);
   if (!allowed) redirect("/login?error=locked");
 
+  const email      = String(formData.get("email") ?? "").trim().toLowerCase();
   const password   = String(formData.get("password") ?? "");
   const expectedPw = process.env.ADMIN_PASSWORD ?? "";
 
-  if (!password || password !== expectedPw) {
+  const allowedEmails = (process.env.ADMIN_EMAIL ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  const emailOk = allowedEmails.length === 0 || allowedEmails.includes(email);
+
+  if (!emailOk || !password || password !== expectedPw) {
     recordFailure(ip);
     redirect("/login?error=1");
   }
