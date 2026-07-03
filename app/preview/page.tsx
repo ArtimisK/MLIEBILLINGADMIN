@@ -162,6 +162,36 @@ export default async function PreviewPage({
     }
   }
 
+  async function resetAndPushAll(formData: FormData) {
+    "use server";
+    const p = String(formData.get("period") ?? currentPeriod());
+    // Reset all "created" invoices for the period back to "draft", then push
+    await db
+      .update(invoices)
+      .set({ status: "draft", qboInvoiceId: null })
+      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "created")));
+    const rows = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "draft")));
+    const ids = rows.map((r) => r.id);
+    if (!ids.length) redirect(`/preview?period=${p}&pushError=${encodeURIComponent("Nothing to push.")}`);
+    let pushed = 0, errors = 0;
+    let errMsg: string | null = null;
+    try {
+      const outcomes = await pushInvoices(ids);
+      pushed = outcomes.filter((o) => o.action !== "error").length;
+      errors = outcomes.filter((o) => o.action === "error").length;
+    } catch (err) {
+      errMsg = err instanceof Error ? err.message : String(err);
+    }
+    if (errMsg) {
+      redirect(`/preview?period=${p}&pushError=${encodeURIComponent(errMsg)}`);
+    } else {
+      redirect(`/preview?period=${p}&pushed=${pushed}&errors=${errors}`);
+    }
+  }
+
   async function emailInvoice(formData: FormData) {
     "use server";
     const p         = String(formData.get("period") ?? currentPeriod());
@@ -212,11 +242,14 @@ export default async function PreviewPage({
 
       {/* Upload success banner */}
       {uploadImportedCount != null && uploadImportedCount > 0 && (
-        <div className="card" style={{ borderLeft: "4px solid #16a34a", background: "#f0fdf4", marginBottom: "1.25rem" }}>
+        <div className="card" style={{ borderLeft: `4px solid ${draftRows.length > 0 ? "#16a34a" : "#3b82f6"}`, background: draftRows.length > 0 ? "#f0fdf4" : "#eff6ff", marginBottom: "1.25rem" }}>
           <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
             <span className="pill good">Imported</span>
             <span style={{ fontWeight: 600 }}>
-              {uploadImportedCount} invoice{uploadImportedCount !== 1 ? "s" : ""} imported — ready to push to QuickBooks
+              {draftRows.length > 0
+                ? `${draftRows.length} invoice${draftRows.length !== 1 ? "s" : ""} ready — scroll down to push to QuickBooks`
+                : `${uploadImportedCount} invoice${uploadImportedCount !== 1 ? "s" : ""} already in QuickBooks — see the table below`
+              }
             </span>
           </div>
         </div>
@@ -463,12 +496,20 @@ export default async function PreviewPage({
       {/* Pushed invoices for this period */}
       {pushedRows.length > 0 && (
         <div style={{ marginTop: "2.5rem" }}>
-          <h2 style={{ marginBottom: "1rem" }}>
-            Pushed to QuickBooks
-            <span className="pill good" style={{ marginLeft: ".75rem", verticalAlign: "middle", fontSize: ".75rem" }}>
-              {pushedRows.length}
-            </span>
-          </h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
+            <h2 style={{ margin: 0 }}>
+              Pushed to QuickBooks
+              <span className="pill good" style={{ marginLeft: ".75rem", verticalAlign: "middle", fontSize: ".75rem" }}>
+                {pushedRows.length}
+              </span>
+            </h2>
+            {draftRows.length === 0 && qboOk && (
+              <form action={resetAndPushAll}>
+                <input type="hidden" name="period" value={period} />
+                <SubmitButton label="Re-push all to QuickBooks →" loadingLabel="Pushing…" className="lg" disabled={!qboOk} />
+              </form>
+            )}
+          </div>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <table>
               <thead>
