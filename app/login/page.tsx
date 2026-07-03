@@ -1,7 +1,11 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash } from "crypto";
+import { eq } from "drizzle-orm";
 import { checkLimit, recordFailure, clearLimit } from "@/lib/rate-limit";
+import { verifyPassword } from "@/lib/auth/password";
+import { db } from "@/db";
+import { users } from "@/db/schema";
 
 function makeToken(password: string): string {
   return createHash("sha256").update(password + ":mli-billing-v1").digest("hex");
@@ -22,18 +26,43 @@ async function login(formData: FormData) {
   const { allowed } = checkLimit(ip);
   if (!allowed) redirect("/login?error=locked");
 
-  const email      = String(formData.get("email") ?? "").trim().toLowerCase();
-  const password   = String(formData.get("password") ?? "");
-  const expectedPw = process.env.ADMIN_PASSWORD ?? "";
+  const email    = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
 
-  const allowedEmails = (process.env.ADMIN_EMAIL ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
+  if (!email || !password) {
+    recordFailure(ip);
+    redirect("/login?error=1");
+  }
 
-  const emailOk = allowedEmails.length === 0 || allowedEmails.includes(email);
+  // Check DB users first; fall back to env vars if no users have been created yet.
+  let authenticated = false;
+  try {
+    const allUsers = await db.select().from(users).limit(1);
+    if (allUsers.length > 0) {
+      const user = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      if (user.length > 0 && verifyPassword(password, user[0].passwordHash)) {
+        authenticated = true;
+      }
+    } else {
+      // No users in DB yet — fall back to env vars.
+      const allowedEmails = (process.env.ADMIN_EMAIL ?? "")
+        .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+      const emailOk = allowedEmails.length === 0 || allowedEmails.includes(email);
+      if (emailOk && password === (process.env.ADMIN_PASSWORD ?? "")) {
+        authenticated = true;
+      }
+    }
+  } catch {
+    // DB unavailable — fall back to env vars.
+    const allowedEmails = (process.env.ADMIN_EMAIL ?? "")
+      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const emailOk = allowedEmails.length === 0 || allowedEmails.includes(email);
+    if (emailOk && password === (process.env.ADMIN_PASSWORD ?? "")) {
+      authenticated = true;
+    }
+  }
 
-  if (!emailOk || !password || password !== expectedPw) {
+  if (!authenticated) {
     recordFailure(ip);
     redirect("/login?error=1");
   }
