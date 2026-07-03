@@ -187,19 +187,6 @@ export const auditLog = pgTable("audit_log", {
   detail: jsonb("detail"),
 });
 
-// ── users — admin accounts managed via /settings ─────────────────
-export const userRoleEnum = pgEnum("user_role", ["admin"]);
-
-export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  email: text("email").notNull(),
-  passwordHash: text("password_hash").notNull(),
-  role: userRoleEnum("role").notNull().default("admin"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  emailUnique: uniqueIndex("users_email_unique").on(t.email),
-}));
-
 // ── app_state — small key/value store for rotating secrets & flags ──
 // QBO rotates the refresh token on every refresh; we persist it here so the
 // instance never gets locked out (blueprint v2 §6). Seeded from env on first run.

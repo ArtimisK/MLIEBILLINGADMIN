@@ -159,14 +159,14 @@ export async function parseMligBuffer(buffer: Buffer): Promise<ParseResult> {
 
     // Parse service date blocks (4 columns each, starting at column 4).
     const lines: ProposedInvoice["lines"] = [];
-    for (let block = 0; block < 10; block++) {
+    for (let block = 0; ; block++) {
       const base = 4 + block * 4;
       const dateStr   = cellStr(row, base);
       const product   = cellStr(row, base + 1);
       const desc      = cellStr(row, base + 2);
       const amountStr = cellStr(row, base + 3);
 
-      if (!dateStr) continue; // no more service dates
+      if (!dateStr) break; // no more service dates
 
       const serviceDate = parseDate(dateStr);
       if (!serviceDate) {
@@ -195,6 +195,7 @@ export async function parseMligBuffer(buffer: Buffer): Promise<ParseResult> {
       continue;
     }
 
+    lines.sort((a, b) => a.serviceDate.getTime() - b.serviceDate.getTime());
     const subtotal = lines.reduce((s, l) => s + l.amount, 0);
 
     invoices.push({
@@ -203,6 +204,7 @@ export async function parseMligBuffer(buffer: Buffer): Promise<ParseResult> {
       studentId: null,
       billingPeriod,
       docNumber: invoiceNo,
+      customerName: clientName || undefined,
       lines,
       subtotal,
     });
