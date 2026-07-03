@@ -179,7 +179,7 @@ export default async function PreviewPage({
     let pushed = 0, errors = 0;
     let errMsg: string | null = null;
     try {
-      const outcomes = await pushInvoices(ids);
+      const outcomes = await pushInvoices(ids, true);
       pushed = outcomes.filter((o) => o.action !== "error").length;
       errors = outcomes.filter((o) => o.action === "error").length;
     } catch (err) {

@@ -94,8 +94,9 @@ export interface PushOutcome {
  * Push draft invoices to QBO. The double guard (blueprint §6):
  *   1. If our row already has qbo_invoice_id → skip (never create twice).
  *   2. Before create, query QBO by DocNumber; if found, adopt that id.
+ * Pass force=true to skip guard #2 (used when re-pushing with corrected customer mapping).
  */
-export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]> {
+export async function pushInvoices(invoiceIds: number[], force = false): Promise<PushOutcome[]> {
   if (!isQboConfigured()) {
     throw new Error(
       "QuickBooks is not configured. Fill QBO_* values in .env (see .env.example).",
@@ -127,17 +128,19 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
     }
 
     try {
-      // Guard #2: adopt an existing QBO invoice with the same DocNumber.
-      const adopted = await findInvoiceByDocNumber(inv.docNumber);
-      if (adopted) {
-        await markInvoicePushed(inv.id, adopted, "created");
-        outcomes.push({
-          invoiceId: inv.id,
-          docNumber: inv.docNumber,
-          qboInvoiceId: adopted,
-          action: "adopted-duplicate",
-        });
-        continue;
+      // Guard #2: adopt an existing QBO invoice with the same DocNumber (skip when force=true).
+      if (!force) {
+        const adopted = await findInvoiceByDocNumber(inv.docNumber);
+        if (adopted) {
+          await markInvoicePushed(inv.id, adopted, "created");
+          outcomes.push({
+            invoiceId: inv.id,
+            docNumber: inv.docNumber,
+            qboInvoiceId: adopted,
+            action: "adopted-duplicate",
+          });
+          continue;
+        }
       }
 
       // Resolve QBO customer:
