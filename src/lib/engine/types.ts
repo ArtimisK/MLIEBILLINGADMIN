@@ -65,4 +65,6 @@ export interface ProposedInvoice {
   subtotal: number;
   /** MLIE only: venue name used as the QBO customer instead of funding org. */
   venueName?: string;
+  /** MLIG Excel import: student/person name — becomes QBO sub-customer under the funding org. */
+  customerName?: string;
 }

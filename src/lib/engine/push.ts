@@ -8,6 +8,7 @@ import {
   assertCustomTxnNumbersEnabled,
   createInvoice,
   ensureCustomer,
+  ensureSubCustomer,
   ensureItem,
   findInvoiceByDocNumber,
 } from "@/lib/qbo/invoice";
@@ -54,6 +55,7 @@ export async function persistDrafts(
         status: "draft",
         subtotal: String(inv.subtotal),
         venueName: inv.venueName ?? null,
+        customerName: inv.customerName ?? null,
       })
       .returning();
 
@@ -138,23 +140,28 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
         continue;
       }
 
-      // Resolve customer: MLIE uses venue name; MLIG uses funding org.
-      let customerName: string;
+      // Resolve QBO customer:
+      // - MLIE: venue name (building) is the customer
+      // - MLIG with student name: student is a sub-customer of the funding org
+      //   (QBO shows student as "Customer", funding org as "Bill to")
+      // - MLIG without student name: fall back to funding org as customer
+      let customerRef: string;
       if (inv.venueName) {
-        customerName = inv.venueName;
+        customerRef = await ensureCustomer(inv.venueName);
+      } else if (inv.customerName && inv.fundingOrgId) {
+        const org = (
+          await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
+        )[0];
+        const parentRef = await ensureCustomer(org?.name ?? "Unknown Org");
+        customerRef = await ensureSubCustomer(inv.customerName, parentRef);
       } else if (inv.fundingOrgId) {
         const org = (
-          await db
-            .select()
-            .from(fundingOrgs)
-            .where(eq(fundingOrgs.id, inv.fundingOrgId))
-            .limit(1)
+          await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
         )[0];
-        customerName = org?.name ?? "Unknown Customer";
+        customerRef = await ensureCustomer(org?.name ?? "Unknown Customer");
       } else {
-        customerName = "Unknown Customer";
+        customerRef = await ensureCustomer("Unknown Customer");
       }
-      const customerRef = await ensureCustomer(customerName);
 
       // Resolve lines + item refs.
       const lines = await db

@@ -59,6 +59,30 @@ export async function ensureCustomer(displayName: string): Promise<string> {
   return created.Customer.Id;
 }
 
+/**
+ * Find or create a sub-customer (Job) under a parent customer.
+ * QBO hierarchy: ParentOrg > StudentName — invoice shows student as Customer,
+ * parent org's address as Bill to.
+ */
+export async function ensureSubCustomer(
+  studentName: string,
+  parentId: string,
+): Promise<string> {
+  const safe = studentName.replace(/'/g, "\\'");
+  const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string }[] } }>(
+    `SELECT * FROM Customer WHERE ParentRef = '${parentId}' AND DisplayName = '${safe}'`,
+  );
+  const existing = found.QueryResponse?.Customer?.[0];
+  if (existing) return existing.Id;
+
+  const created = await qboPost<{ Customer: { Id: string } }>("customer", {
+    DisplayName: studentName,
+    ParentRef: { value: parentId },
+    Job: true,
+  });
+  return created.Customer.Id;
+}
+
 /** Resolve an Item (Product/Service) id by exact name; must already exist in QBO. */
 export async function ensureItem(itemName: string): Promise<string> {
   const found = await qboQuery<{ QueryResponse?: { Item?: { Id: string }[] } }>(
