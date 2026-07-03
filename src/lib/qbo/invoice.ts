@@ -68,11 +68,17 @@ export async function ensureSubCustomer(
   studentName: string,
   parentId: string,
 ): Promise<string> {
-  const safe = studentName.replace(/'/g, "\\'");
-  const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string }[] } }>(
-    `SELECT * FROM Customer WHERE ParentRef = '${parentId}' AND DisplayName = '${safe}'`,
+  // QBO stores sub-customer DisplayName as "ParentName:StudentName", so a direct
+  // DisplayName query won't match. Fetch all children of the parent and match on suffix.
+  const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string; DisplayName: string }[] } }>(
+    `SELECT * FROM Customer WHERE ParentRef = '${parentId}'`,
   );
-  const existing = found.QueryResponse?.Customer?.[0];
+  const children = found.QueryResponse?.Customer ?? [];
+  const existing = children.find((c) => {
+    const parts = c.DisplayName.split(":");
+    const childPart = parts[parts.length - 1].trim();
+    return childPart.toLowerCase() === studentName.toLowerCase();
+  });
   if (existing) return existing.Id;
 
   const created = await qboPost<{ Customer: { Id: string } }>("customer", {
