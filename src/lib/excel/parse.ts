@@ -204,7 +204,7 @@ export async function parseMligBuffer(buffer: Buffer): Promise<ParseResult> {
       studentId: null,
       billingPeriod,
       docNumber: invoiceNo,
-      customerName: clientName || undefined,
+      clientName: clientName || undefined,
       lines,
       subtotal,
     });

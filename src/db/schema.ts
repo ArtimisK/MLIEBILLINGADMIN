@@ -131,7 +131,7 @@ export const invoices = pgTable(
     status: invoiceStatusEnum("status").notNull().default("draft"),
     subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
     venueName: text("venue_name"), // MLIE only: overrides funding org as QBO customer
-    customerName: text("customer_name"), // MLIG Excel import: student name for QBO sub-customer
+    clientName: text("client_name"), // MLIG Excel import: student/person name for QBO sub-customer
     driveFileId: text("drive_file_id"), // Google Drive PDF, set after upload
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     errorMessage: text("error_message"),

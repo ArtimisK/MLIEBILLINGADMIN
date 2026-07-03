@@ -1,1 +1,1 @@
-ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "customer_name" text;
+ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "client_name" text;

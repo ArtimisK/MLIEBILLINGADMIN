@@ -55,7 +55,7 @@ export async function persistDrafts(
         status: "draft",
         subtotal: String(inv.subtotal),
         venueName: inv.venueName ?? null,
-        customerName: inv.customerName ?? null,
+        clientName: inv.clientName ?? null,
       })
       .returning();
 
@@ -148,12 +148,12 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
       let customerRef: string;
       if (inv.venueName) {
         customerRef = await ensureCustomer(inv.venueName);
-      } else if (inv.customerName && inv.fundingOrgId) {
+      } else if (inv.clientName && inv.fundingOrgId) {
         const org = (
           await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
         )[0];
         const parentRef = await ensureCustomer(org?.name ?? "Unknown Org");
-        customerRef = await ensureSubCustomer(inv.customerName, parentRef);
+        customerRef = await ensureSubCustomer(inv.clientName, parentRef);
       } else if (inv.fundingOrgId) {
         const org = (
           await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
