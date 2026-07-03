@@ -178,8 +178,15 @@ export async function pushInvoices(invoiceIds: number[]): Promise<PushOutcome[]>
         });
       }
 
-      // Invoice date = 1st of the billing month (e.g. 2026-07 → 2026-07-01)
-      const txnDate = inv.billingPeriod ? `${inv.billingPeriod}-01` : undefined;
+      // MLIG: invoice date = 1st of the billing month (e.g. 2026-07 → 2026-07-01)
+      // MLIE: invoice date = service date of the gig
+      let txnDate: string | undefined;
+      if (inv.businessLine === "MLIE" && lines[0]?.serviceDate) {
+        const d = new Date(lines[0].serviceDate);
+        txnDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      } else {
+        txnDate = inv.billingPeriod ? `${inv.billingPeriod}-01` : undefined;
+      }
 
       const created = await createInvoice({
         customerRef,
