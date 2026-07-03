@@ -2,6 +2,11 @@
 const nextConfig = {
   output: process.env.BUILD_STANDALONE ? "standalone" : undefined,
   serverExternalPackages: ["postgres", "googleapis", "intuit-oauth"],
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
 
   async headers() {
     return [
