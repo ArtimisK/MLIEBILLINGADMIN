@@ -26,6 +26,7 @@ export default async function PreviewPage({
     pushError?: string;
     emailSent?: string;
     emailError?: string;
+    uploadImported?: string;
     uploadErrors?: string;
     uploadErrDetail?: string;
     cleared?: string;
@@ -38,6 +39,7 @@ export default async function PreviewPage({
   const pushErrorMsg     = sp.pushError        ?? null;
   const emailSentDoc     = sp.emailSent        ?? null;
   const emailErrMsg      = sp.emailError       ?? null;
+  const uploadImportedCount = sp.uploadImported != null ? Number(sp.uploadImported) : null;
   const uploadErrorCount = sp.uploadErrors    != null ? Number(sp.uploadErrors) : null;
   const uploadErrDetail  = sp.uploadErrDetail  ?? null;
   const wasCleared       = sp.cleared         === "1";
@@ -190,7 +192,12 @@ export default async function PreviewPage({
     <>
       <div className="page-header">
         <h1>{new Date(period + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })} Invoices</h1>
-        <p>Review each invoice below. Nothing is sent to QuickBooks until you click the button at the bottom.</p>
+        {draftRows.length > 0
+          ? <p>Review the invoices below, then click <strong>Send to QuickBooks</strong> when ready.</p>
+          : pushedRows.length > 0
+          ? <p>{pushedRows.length} invoice{pushedRows.length !== 1 ? "s" : ""} already pushed to QuickBooks this month.</p>
+          : <p>No invoices for this period yet. Upload an Excel file to get started.</p>
+        }
       </div>
 
       {/* Cleared banner */}
@@ -204,6 +211,16 @@ export default async function PreviewPage({
       )}
 
       {/* Upload success banner */}
+      {uploadImportedCount != null && uploadImportedCount > 0 && (
+        <div className="card" style={{ borderLeft: "4px solid #16a34a", background: "#f0fdf4", marginBottom: "1.25rem" }}>
+          <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
+            <span className="pill good">Imported</span>
+            <span style={{ fontWeight: 600 }}>
+              {uploadImportedCount} invoice{uploadImportedCount !== 1 ? "s" : ""} imported — ready to push to QuickBooks
+            </span>
+          </div>
+        </div>
+      )}
       {uploadErrorCount != null && uploadErrorCount > 0 && (
         <div className="card" style={{ borderLeft: "4px solid #f59e0b", background: "#fffbeb", marginBottom: "1.25rem" }}>
           <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>

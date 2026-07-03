@@ -76,7 +76,7 @@ export default async function UploadPage({
     const detectedPeriod = [...periods].sort().at(-1) ?? currentPeriod();
 
     if (totalImported > 0) {
-      const p = new URLSearchParams({ period: detectedPeriod });
+      const p = new URLSearchParams({ period: detectedPeriod, uploadImported: String(totalImported) });
       if (totalErrors > 0) p.set("uploadErrors", String(totalErrors));
       if (allErrors.length > 0) p.set("uploadErrDetail", allErrors.slice(0, 3).join(" | "));
       redirect("/preview?" + p.toString());
