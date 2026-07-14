@@ -68,10 +68,11 @@ export async function ensureSubCustomer(
   studentName: string,
   parentId: string,
 ): Promise<string> {
-  // QBO stores sub-customer DisplayName as "ParentName:StudentName", so a direct
-  // DisplayName query won't match. Fetch all children of the parent and match on suffix.
+  // QBO stores sub-customer DisplayName as "ParentName:StudentName".
+  // ParentRef is not queryable, so search by DisplayName suffix instead.
+  const safeName = studentName.replace(/'/g, "\\'");
   const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string; DisplayName: string }[] } }>(
-    `SELECT * FROM Customer WHERE ParentRef = '${parentId}'`,
+    `SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeName}'`,
   );
   const children = found.QueryResponse?.Customer ?? [];
   const existing = children.find((c) => {
