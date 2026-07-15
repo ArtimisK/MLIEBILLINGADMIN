@@ -59,35 +59,73 @@ export async function ensureCustomer(displayName: string): Promise<string> {
   return created.Customer.Id;
 }
 
+export interface EnsureSubCustomerResult {
+  id: string;
+  /** True if studentName collided with a sub-customer under a DIFFERENT parent,
+   *  so a disambiguated DisplayName ("Name (ParentName)") was used instead. */
+  disambiguated: boolean;
+}
+
 /**
  * Find or create a sub-customer (Job) under a parent customer.
  * QBO hierarchy: ParentOrg > StudentName — invoice shows student as Customer,
  * parent org's address as Bill to.
+ *
+ * QBO requires DisplayName to be unique across all Customer/Vendor/Employee
+ * records, so if studentName is already taken by a sub-customer of a DIFFERENT
+ * parent, we fall back to "studentName (parentName)" and report the collision
+ * so the caller can flag the invoice for review instead of silently attaching
+ * to the wrong parent.
  */
 export async function ensureSubCustomer(
   studentName: string,
   parentId: string,
-): Promise<string> {
+  parentName: string,
+): Promise<EnsureSubCustomerResult> {
   // QBO stores sub-customer DisplayName as "ParentName:StudentName".
-  // ParentRef is not queryable, so search by DisplayName suffix instead.
+  // ParentRef is not queryable, so search by DisplayName suffix, then verify
+  // the actual ParentRef of any match before trusting it.
   const safeName = studentName.replace(/'/g, "\\'");
-  const found = await qboQuery<{ QueryResponse?: { Customer?: { Id: string; DisplayName: string }[] } }>(
-    `SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeName}'`,
-  );
+  const found = await qboQuery<{
+    QueryResponse?: { Customer?: { Id: string; DisplayName: string; ParentRef?: QboRef }[] };
+  }>(`SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeName}'`);
   const children = found.QueryResponse?.Customer ?? [];
-  const existing = children.find((c) => {
+  const nameMatch = children.find((c) => {
     const parts = c.DisplayName.split(":");
     const childPart = parts[parts.length - 1].trim();
     return childPart.toLowerCase() === studentName.toLowerCase();
   });
-  if (existing) return existing.Id;
+
+  if (nameMatch) {
+    if (nameMatch.ParentRef?.value === parentId) {
+      return { id: nameMatch.Id, disambiguated: false };
+    }
+    // Same student name exists under a different parent — disambiguate.
+    const disambiguatedName = `${studentName} (${parentName})`;
+    const safeDisambiguated = disambiguatedName.replace(/'/g, "\\'");
+    const foundDisambiguated = await qboQuery<{
+      QueryResponse?: { Customer?: { Id: string; ParentRef?: QboRef }[] };
+    }>(`SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeDisambiguated}'`);
+    const existingDisambiguated = foundDisambiguated.QueryResponse?.Customer?.find(
+      (c) => c.ParentRef?.value === parentId,
+    );
+    if (existingDisambiguated) {
+      return { id: existingDisambiguated.Id, disambiguated: true };
+    }
+    const created = await qboPost<{ Customer: { Id: string } }>("customer", {
+      DisplayName: disambiguatedName,
+      ParentRef: { value: parentId },
+      Job: true,
+    });
+    return { id: created.Customer.Id, disambiguated: true };
+  }
 
   const created = await qboPost<{ Customer: { Id: string } }>("customer", {
     DisplayName: studentName,
     ParentRef: { value: parentId },
     Job: true,
   });
-  return created.Customer.Id;
+  return { id: created.Customer.Id, disambiguated: false };
 }
 
 /** Resolve an Item (Product/Service) id by exact name; must already exist in QBO. */

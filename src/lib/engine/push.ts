@@ -155,8 +155,17 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
         const org = (
           await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
         )[0];
-        const parentRef = await ensureCustomer(org?.name ?? "Unknown Org");
-        customerRef = await ensureSubCustomer(inv.clientName, parentRef);
+        const orgName = org?.name ?? "Unknown Org";
+        const parentRef = await ensureCustomer(orgName);
+        const sub = await ensureSubCustomer(inv.clientName, parentRef, orgName);
+        customerRef = sub.id;
+        if (sub.disambiguated) {
+          await audit("system", "push.customer_name_collision", "invoice", inv.id, {
+            clientName: inv.clientName,
+            billTo: orgName,
+            note: `"${inv.clientName}" already exists under a different Bill-to; used "${inv.clientName} (${orgName})" instead. Review for a possible duplicate client.`,
+          });
+        }
       } else if (inv.fundingOrgId) {
         const org = (
           await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
