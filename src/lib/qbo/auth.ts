@@ -31,6 +31,21 @@ export function apiBaseUrl(): string {
     : "https://sandbox-quickbooks.api.intuit.com";
 }
 
+/**
+ * Public origin the app is reachable at (e.g. https://billing.occupationaloctaves.com).
+ * Derived from QBO_REDIRECT_URI rather than the incoming request: behind the
+ * Cloudflare Tunnel, req.url reflects the container's internal hostname, so
+ * building redirects from it sends browsers to an unreachable address.
+ */
+export function publicAppOrigin(): string {
+  const redirectUri = process.env.QBO_REDIRECT_URI ?? "";
+  try {
+    return new URL(redirectUri).origin;
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
 export function createOAuthClient(): OAuthClient {
   return new OAuthClient({
     clientId: process.env.QBO_CLIENT_ID ?? "",

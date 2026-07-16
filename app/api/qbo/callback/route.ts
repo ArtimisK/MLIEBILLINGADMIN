@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOAuthClient, getAuthUri } from "@/lib/qbo/auth";
+import { createOAuthClient, getAuthUri, publicAppOrigin } from "@/lib/qbo/auth";
 import { saveRefreshToken } from "@/lib/qbo/token-store";
 import { db } from "@/db";
 import { appState } from "@/db/schema";
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   // Intuit returned an error (e.g. user denied access)
   if (error) {
     return NextResponse.redirect(
-      new URL("/settings?qbo=error&msg=" + encodeURIComponent(error), req.url),
+      new URL("/settings?qbo=error&msg=" + encodeURIComponent(error), publicAppOrigin()),
     );
   }
 
@@ -46,11 +46,11 @@ export async function GET(req: NextRequest) {
         });
     }
 
-    return NextResponse.redirect(new URL("/settings?qbo=connected", req.url));
+    return NextResponse.redirect(new URL("/settings?qbo=connected", publicAppOrigin()));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.redirect(
-      new URL("/settings?qbo=error&msg=" + encodeURIComponent(message), req.url),
+      new URL("/settings?qbo=error&msg=" + encodeURIComponent(message), publicAppOrigin()),
     );
   }
 }
