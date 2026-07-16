@@ -271,6 +271,7 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
       billingPeriod,
       docNumber: invoiceNo,
       venueName: location || "Unknown Venue",
+      clientName: performerName || undefined,
       lines: [
         {
           serviceDate,
