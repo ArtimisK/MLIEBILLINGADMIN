@@ -119,6 +119,38 @@ export default async function PreviewPage({
       );
   } catch {}
 
+  // ── Errored invoices (push attempted and failed) ─────────────────
+  type ErrorRow = {
+    id: number;
+    docNumber: string;
+    businessLine: "MLIG" | "MLIE";
+    subtotal: string;
+    venueName: string | null;
+    orgName: string | null;
+    errorMessage: string | null;
+  };
+  let errorRows: ErrorRow[] = [];
+  try {
+    errorRows = await db
+      .select({
+        id: invoices.id,
+        docNumber: invoices.docNumber,
+        businessLine: invoices.businessLine,
+        subtotal: invoices.subtotal,
+        venueName: invoices.venueName,
+        orgName: fundingOrgs.name,
+        errorMessage: invoices.errorMessage,
+      })
+      .from(invoices)
+      .leftJoin(fundingOrgs, eq(invoices.fundingOrgId, fundingOrgs.id))
+      .where(
+        and(
+          eq(invoices.billingPeriod, period),
+          eq(invoices.status, "error"),
+        ),
+      );
+  } catch {}
+
   // ── Server actions ──────────────────────────────────────────────
   async function push(formData: FormData) {
     "use server";
@@ -150,6 +182,39 @@ export default async function PreviewPage({
     let errMsg: string | null = null;
     try {
       const outcomes = await pushInvoices(ids);
+      pushed = outcomes.filter((o) => o.action !== "error").length;
+      errors = outcomes.filter((o) => o.action === "error").length;
+    } catch (err) {
+      errMsg = err instanceof Error ? err.message : String(err);
+    }
+    if (errMsg) {
+      redirect(`/preview?period=${p}&pushError=${encodeURIComponent(errMsg)}`);
+    } else {
+      redirect(`/preview?period=${p}&pushed=${pushed}&errors=${errors}`);
+    }
+  }
+
+  async function retryErrors(formData: FormData) {
+    "use server";
+    const p = String(formData.get("period") ?? currentPeriod());
+    // Reset "error" invoices for the period back to "draft", then push with
+    // force=true — pushInvoices now deletes any stale QBO invoice under the
+    // same DocNumber before recreating, so this is safe even for rows that
+    // partially succeeded in QBO before erroring.
+    await db
+      .update(invoices)
+      .set({ status: "draft", errorMessage: null })
+      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "error")));
+    const rows = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.billingPeriod, p), eq(invoices.status, "draft")));
+    const ids = rows.map((r) => r.id);
+    if (!ids.length) redirect(`/preview?period=${p}&pushError=${encodeURIComponent("Nothing to retry.")}`);
+    let pushed = 0, errors = 0;
+    let errMsg: string | null = null;
+    try {
+      const outcomes = await pushInvoices(ids, true);
       pushed = outcomes.filter((o) => o.action !== "error").length;
       errors = outcomes.filter((o) => o.action === "error").length;
     } catch (err) {
@@ -242,13 +307,17 @@ export default async function PreviewPage({
 
       {/* Upload success banner */}
       {uploadImportedCount != null && uploadImportedCount > 0 && (
-        <div className="card" style={{ borderLeft: `4px solid ${draftRows.length > 0 ? "#16a34a" : "#3b82f6"}`, background: draftRows.length > 0 ? "#f0fdf4" : "#eff6ff", marginBottom: "1.25rem" }}>
+        <div className="card" style={{ borderLeft: `4px solid ${draftRows.length > 0 ? "#16a34a" : errorRows.length > 0 ? "#dc2626" : "#3b82f6"}`, background: draftRows.length > 0 ? "#f0fdf4" : errorRows.length > 0 ? "#fff5f5" : "#eff6ff", marginBottom: "1.25rem" }}>
           <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
             <span className="pill good">Imported</span>
             <span style={{ fontWeight: 600 }}>
               {draftRows.length > 0
                 ? `${draftRows.length} invoice${draftRows.length !== 1 ? "s" : ""} ready — scroll down to push to QuickBooks`
-                : `${uploadImportedCount} invoice${uploadImportedCount !== 1 ? "s" : ""} already in QuickBooks — see the table below`
+                : errorRows.length > 0
+                ? `${errorRows.length} invoice${errorRows.length !== 1 ? "s" : ""} failed to push — see Failed below`
+                : pushedRows.length > 0
+                ? `${pushedRows.length} invoice${pushedRows.length !== 1 ? "s" : ""} already in QuickBooks — see the table below`
+                : `${uploadImportedCount} invoice${uploadImportedCount !== 1 ? "s" : ""} imported`
               }
             </span>
           </div>
@@ -489,6 +558,55 @@ export default async function PreviewPage({
                 <SubmitButton label="Send to QuickBooks →" loadingLabel="Sending…" className="lg" disabled={!qboOk} />
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Failed invoices — push was attempted and QBO rejected it */}
+      {errorRows.length > 0 && (
+        <div style={{ marginTop: "2.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
+            <h2 style={{ margin: 0 }}>
+              Failed
+              <span className="pill bad" style={{ marginLeft: ".75rem", verticalAlign: "middle", fontSize: ".75rem" }}>
+                {errorRows.length}
+              </span>
+            </h2>
+            {qboOk && (
+              <form action={retryErrors}>
+                <input type="hidden" name="period" value={period} />
+                <SubmitButton label="Retry all →" loadingLabel="Retrying…" className="lg" disabled={!qboOk} />
+              </form>
+            )}
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Bill to</th>
+                  <th className="num">Amount</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errorRows.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <span className="inv-doc" style={{ fontSize: ".85rem" }}>{r.docNumber}</span>
+                      <span className={`pill ${r.businessLine === "MLIG" ? "mlig" : "mlie"}`} style={{ marginLeft: ".4rem" }}>
+                        {r.businessLine}
+                      </span>
+                    </td>
+                    <td className="muted">{r.venueName ?? r.orgName ?? "—"}</td>
+                    <td className="num">${Number(r.subtotal).toFixed(2)}</td>
+                    <td className="muted" style={{ fontSize: ".78rem", fontFamily: "ui-monospace,monospace", maxWidth: "420px" }}>
+                      {r.errorMessage ?? "Unknown error"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

@@ -152,6 +152,22 @@ export async function findInvoiceByDocNumber(
   return found.QueryResponse?.Invoice?.[0]?.Id ?? null;
 }
 
+/** Like findInvoiceByDocNumber, but also returns SyncToken (required to delete). */
+export async function findInvoiceRefByDocNumber(
+  docNumber: string,
+): Promise<{ id: string; syncToken: string } | null> {
+  const found = await qboQuery<{
+    QueryResponse?: { Invoice?: { Id: string; SyncToken: string }[] };
+  }>(`SELECT * FROM Invoice WHERE DocNumber = '${docNumber.replace(/'/g, "\\'")}'`);
+  const existing = found.QueryResponse?.Invoice?.[0];
+  return existing ? { id: existing.Id, syncToken: existing.SyncToken } : null;
+}
+
+/** Delete an invoice in QBO so its DocNumber can be reused by a fresh create. */
+export async function deleteInvoice(id: string, syncToken: string): Promise<void> {
+  await qboPost("invoice", { Id: id, SyncToken: syncToken }, { operation: "delete" });
+}
+
 export async function createInvoice(
   input: CreateInvoiceInput,
 ): Promise<{ id: string; docNumber: string }> {

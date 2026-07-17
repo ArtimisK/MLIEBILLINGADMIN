@@ -11,6 +11,8 @@ import {
   ensureSubCustomer,
   ensureItem,
   findInvoiceByDocNumber,
+  findInvoiceRefByDocNumber,
+  deleteInvoice,
 } from "@/lib/qbo/invoice";
 import { qboGetPdf } from "@/lib/qbo/client";
 import { isQboConfigured } from "@/lib/qbo/auth";
@@ -128,8 +130,8 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
     }
 
     try {
-      // Guard #2: adopt an existing QBO invoice with the same DocNumber (skip when force=true).
       if (!force) {
+        // Guard #2: adopt an existing QBO invoice with the same DocNumber.
         const adopted = await findInvoiceByDocNumber(inv.docNumber);
         if (adopted) {
           await markInvoicePushed(inv.id, adopted, "created");
@@ -140,6 +142,18 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
             action: "adopted-duplicate",
           });
           continue;
+        }
+      } else {
+        // force=true means we WANT a fresh create (e.g. fixing a bad customer
+        // mapping) — but QBO rejects a duplicate DocNumber outright, so delete
+        // whatever's there under that DocNumber first.
+        const stale = await findInvoiceRefByDocNumber(inv.docNumber);
+        if (stale) {
+          await deleteInvoice(stale.id, stale.syncToken);
+          await audit("system", "push.deleted_stale_qbo_invoice", "invoice", inv.id, {
+            docNumber: inv.docNumber,
+            qboInvoiceId: stale.id,
+          });
         }
       }
 
