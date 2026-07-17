@@ -87,7 +87,15 @@ export async function ensureSubCustomer(
   // the actual ParentRef of any match before trusting it.
   const safeName = studentName.replace(/'/g, "\\'");
   const found = await qboQuery<{
-    QueryResponse?: { Customer?: { Id: string; DisplayName: string; ParentRef?: QboRef }[] };
+    QueryResponse?: {
+      Customer?: {
+        Id: string;
+        DisplayName: string;
+        ParentRef?: QboRef;
+        SyncToken: string;
+        BillWithParent?: boolean;
+      }[];
+    };
   }>(`SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeName}'`);
   const children = found.QueryResponse?.Customer ?? [];
   const nameMatch = children.find((c) => {
@@ -98,24 +106,46 @@ export async function ensureSubCustomer(
 
   if (nameMatch) {
     if (nameMatch.ParentRef?.value === parentId) {
+      // Backfill BillWithParent on sub-customers created before this flag
+      // was added — otherwise QBO shows the sub-customer's own (blank)
+      // address as Bill To instead of pulling the parent's.
+      if (!nameMatch.BillWithParent) {
+        await qboPost("customer", {
+          Id: nameMatch.Id,
+          SyncToken: nameMatch.SyncToken,
+          sparse: true,
+          BillWithParent: true,
+        });
+      }
       return { id: nameMatch.Id, disambiguated: false };
     }
     // Same student name exists under a different parent — disambiguate.
     const disambiguatedName = `${studentName} (${parentName})`;
     const safeDisambiguated = disambiguatedName.replace(/'/g, "\\'");
     const foundDisambiguated = await qboQuery<{
-      QueryResponse?: { Customer?: { Id: string; ParentRef?: QboRef }[] };
+      QueryResponse?: {
+        Customer?: { Id: string; ParentRef?: QboRef; SyncToken: string; BillWithParent?: boolean }[];
+      };
     }>(`SELECT * FROM Customer WHERE DisplayName LIKE '%:${safeDisambiguated}'`);
     const existingDisambiguated = foundDisambiguated.QueryResponse?.Customer?.find(
       (c) => c.ParentRef?.value === parentId,
     );
     if (existingDisambiguated) {
+      if (!existingDisambiguated.BillWithParent) {
+        await qboPost("customer", {
+          Id: existingDisambiguated.Id,
+          SyncToken: existingDisambiguated.SyncToken,
+          sparse: true,
+          BillWithParent: true,
+        });
+      }
       return { id: existingDisambiguated.Id, disambiguated: true };
     }
     const created = await qboPost<{ Customer: { Id: string } }>("customer", {
       DisplayName: disambiguatedName,
       ParentRef: { value: parentId },
       Job: true,
+      BillWithParent: true,
     });
     return { id: created.Customer.Id, disambiguated: true };
   }
@@ -124,6 +154,7 @@ export async function ensureSubCustomer(
     DisplayName: studentName,
     ParentRef: { value: parentId },
     Job: true,
+    BillWithParent: true,
   });
   return { id: created.Customer.Id, disambiguated: false };
 }

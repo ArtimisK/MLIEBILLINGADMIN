@@ -16,11 +16,17 @@ describe("ensureSubCustomer", () => {
     qboPost.mockReset();
   });
 
-  it("reuses the existing sub-customer when the parent matches", async () => {
+  it("reuses the existing sub-customer when the parent matches and BillWithParent is already set", async () => {
     qboQuery.mockResolvedValueOnce({
       QueryResponse: {
         Customer: [
-          { Id: "42", DisplayName: "ISS:Ari Amir", ParentRef: { value: "parent-iss" } },
+          {
+            Id: "42",
+            DisplayName: "ISS:Ari Amir",
+            ParentRef: { value: "parent-iss" },
+            SyncToken: "3",
+            BillWithParent: true,
+          },
         ],
       },
     });
@@ -29,6 +35,33 @@ describe("ensureSubCustomer", () => {
 
     expect(result).toEqual({ id: "42", disambiguated: false });
     expect(qboPost).not.toHaveBeenCalled();
+  });
+
+  it("backfills BillWithParent on an existing sub-customer that predates the flag", async () => {
+    qboQuery.mockResolvedValueOnce({
+      QueryResponse: {
+        Customer: [
+          {
+            Id: "42",
+            DisplayName: "ISS:Ari Amir",
+            ParentRef: { value: "parent-iss" },
+            SyncToken: "3",
+            BillWithParent: false,
+          },
+        ],
+      },
+    });
+    qboPost.mockResolvedValueOnce({});
+
+    const result = await ensureSubCustomer("Ari Amir", "parent-iss", "ISS");
+
+    expect(result).toEqual({ id: "42", disambiguated: false });
+    expect(qboPost).toHaveBeenCalledWith("customer", {
+      Id: "42",
+      SyncToken: "3",
+      sparse: true,
+      BillWithParent: true,
+    });
   });
 
   it("creates a new sub-customer when none exists", async () => {
@@ -42,6 +75,7 @@ describe("ensureSubCustomer", () => {
       DisplayName: "Ari Amir",
       ParentRef: { value: "parent-iss" },
       Job: true,
+      BillWithParent: true,
     });
   });
 
@@ -50,7 +84,7 @@ describe("ensureSubCustomer", () => {
     qboQuery.mockResolvedValueOnce({
       QueryResponse: {
         Customer: [
-          { Id: "1", DisplayName: "CMS:Ari Amir", ParentRef: { value: "parent-cms" } },
+          { Id: "1", DisplayName: "CMS:Ari Amir", ParentRef: { value: "parent-cms" }, SyncToken: "1" },
         ],
       },
     });
@@ -65,6 +99,7 @@ describe("ensureSubCustomer", () => {
       DisplayName: "Ari Amir (ISS)",
       ParentRef: { value: "parent-iss" },
       Job: true,
+      BillWithParent: true,
     });
   });
 
@@ -72,7 +107,7 @@ describe("ensureSubCustomer", () => {
     qboQuery.mockResolvedValueOnce({
       QueryResponse: {
         Customer: [
-          { Id: "1", DisplayName: "CMS:Ari Amir", ParentRef: { value: "parent-cms" } },
+          { Id: "1", DisplayName: "CMS:Ari Amir", ParentRef: { value: "parent-cms" }, SyncToken: "1" },
         ],
       },
     });
@@ -83,6 +118,8 @@ describe("ensureSubCustomer", () => {
             Id: "77",
             DisplayName: "ISS:Ari Amir (ISS)",
             ParentRef: { value: "parent-iss" },
+            SyncToken: "2",
+            BillWithParent: true,
           },
         ],
       },
