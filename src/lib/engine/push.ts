@@ -8,7 +8,6 @@ import {
   assertCustomTxnNumbersEnabled,
   createInvoice,
   ensureCustomer,
-  ensureSubCustomer,
   ensureItem,
   findInvoiceByDocNumber,
   findInvoiceRefByDocNumber,
@@ -157,42 +156,14 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
         }
       }
 
-      // Resolve QBO customer:
-      // - MLIE with performer name: performer is a sub-customer of the venue
-      //   (QBO shows performer as "Customer", venue as "Bill to")
-      // - MLIE without performer name: fall back to venue as customer
-      // - MLIG with student name: student is a sub-customer of the funding org
-      //   (QBO shows student as "Customer", funding org as "Bill to")
-      // - MLIG without student name: fall back to funding org as customer
+      // Resolve QBO customer — flat, one name per invoice, per client feedback:
+      // - MLIE: the institution/venue is the customer (e.g. "Parker Jewish Institute")
+      // - MLIG: the client/student is the customer (e.g. "Zztest Fixcheck")
       let customerRef: string;
-      if (inv.venueName && inv.clientName) {
-        const parentRef = await ensureCustomer(inv.venueName);
-        const sub = await ensureSubCustomer(inv.clientName, parentRef, inv.venueName);
-        customerRef = sub.id;
-        if (sub.disambiguated) {
-          await audit("system", "push.customer_name_collision", "invoice", inv.id, {
-            clientName: inv.clientName,
-            billTo: inv.venueName,
-            note: `"${inv.clientName}" already exists under a different Bill-to; used "${inv.clientName} (${inv.venueName})" instead. Review for a possible duplicate client.`,
-          });
-        }
-      } else if (inv.venueName) {
+      if (inv.venueName) {
         customerRef = await ensureCustomer(inv.venueName);
-      } else if (inv.clientName && inv.fundingOrgId) {
-        const org = (
-          await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
-        )[0];
-        const orgName = org?.name ?? "Unknown Org";
-        const parentRef = await ensureCustomer(orgName);
-        const sub = await ensureSubCustomer(inv.clientName, parentRef, orgName);
-        customerRef = sub.id;
-        if (sub.disambiguated) {
-          await audit("system", "push.customer_name_collision", "invoice", inv.id, {
-            clientName: inv.clientName,
-            billTo: orgName,
-            note: `"${inv.clientName}" already exists under a different Bill-to; used "${inv.clientName} (${orgName})" instead. Review for a possible duplicate client.`,
-          });
-        }
+      } else if (inv.clientName) {
+        customerRef = await ensureCustomer(inv.clientName);
       } else if (inv.fundingOrgId) {
         const org = (
           await db.select().from(fundingOrgs).where(eq(fundingOrgs.id, inv.fundingOrgId)).limit(1)
