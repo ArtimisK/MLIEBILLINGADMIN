@@ -1,7 +1,7 @@
 // Push (blueprint §5.6 + §6): persist proposed invoices as drafts, then create
 // them in QBO with the double-guard idempotency that kills duplicate invoices.
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { events, fundingOrgs, invoiceLines, invoices } from "@/db/schema";
 import {
@@ -173,11 +173,14 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
         customerRef = await ensureCustomer("Unknown Customer");
       }
 
-      // Resolve lines + item refs.
+      // Resolve lines + item refs. Order by service date — Postgres makes no
+      // guarantee about row order without an explicit ORDER BY, and QBO
+      // renders invoice lines in whatever order we send them.
       const lines = await db
         .select()
         .from(invoiceLines)
-        .where(eq(invoiceLines.invoiceId, inv.id));
+        .where(eq(invoiceLines.invoiceId, inv.id))
+        .orderBy(asc(invoiceLines.serviceDate));
 
       const qboLines = [];
       for (const l of lines) {
