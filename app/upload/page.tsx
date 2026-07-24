@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { parseMligBuffer, parseMlieBuffer } from "@/lib/excel/parse";
 import { persistDrafts } from "@/lib/engine/push";
-import { syncSheetsAndPush } from "@/lib/pipeline";
+import { syncMligSheet, syncMlieSheet } from "@/lib/pipeline";
 import SubmitButton from "../components/submit-button";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ export default async function UploadPage({
     errors?: string;
     skipped?: string;
     errDetail?: string;
+    syncLine?: string;
     syncPushed?: string;
     syncErrors?: string;
     syncErrDetail?: string;
@@ -29,22 +30,37 @@ export default async function UploadPage({
   const errorsCount   = sp.errors   != null ? Number(sp.errors)   : null;
   const skippedCount  = sp.skipped  != null ? Number(sp.skipped)  : null;
   const errDetail     = sp.errDetail ?? null;
+  const syncLine        = sp.syncLine ?? null;
   const syncPushedCount = sp.syncPushed != null ? Number(sp.syncPushed) : null;
   const syncErrorsCount = sp.syncErrors != null ? Number(sp.syncErrors) : null;
   const syncErrDetail   = sp.syncErrDetail ?? null;
 
-  async function syncFromSheets() {
+  async function syncMlig() {
     "use server";
-    let outcomes;
+    let outcome;
     try {
-      outcomes = await syncSheetsAndPush();
+      outcome = await syncMligSheet();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      redirect("/upload?syncErrDetail=" + encodeURIComponent(msg));
+      redirect("/upload?syncLine=MLIG&syncErrDetail=" + encodeURIComponent(msg));
     }
-    const pushed = outcomes.reduce((s, o) => s + o.pushed, 0);
-    const errors = outcomes.reduce((s, o) => s + o.parseErrors + o.pushErrors, 0);
-    const params = new URLSearchParams({ syncPushed: String(pushed) });
+    const params = new URLSearchParams({ syncLine: "MLIG", syncPushed: String(outcome?.pushed ?? 0) });
+    const errors = (outcome?.parseErrors ?? 0) + (outcome?.pushErrors ?? 0);
+    if (errors > 0) params.set("syncErrors", String(errors));
+    redirect("/upload?" + params.toString());
+  }
+
+  async function syncMlie() {
+    "use server";
+    let outcome;
+    try {
+      outcome = await syncMlieSheet();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      redirect("/upload?syncLine=MLIE&syncErrDetail=" + encodeURIComponent(msg));
+    }
+    const params = new URLSearchParams({ syncLine: "MLIE", syncPushed: String(outcome?.pushed ?? 0) });
+    const errors = (outcome?.parseErrors ?? 0) + (outcome?.pushErrors ?? 0);
     if (errors > 0) params.set("syncErrors", String(errors));
     redirect("/upload?" + params.toString());
   }
@@ -130,7 +146,7 @@ export default async function UploadPage({
       {syncPushedCount != null && (
         <div className="card" style={{ borderLeft: `4px solid ${syncErrorsCount ? "#f59e0b" : "#16a34a"}`, background: syncErrorsCount ? "#fffbeb" : "#f0fdf4", marginBottom: "1.25rem" }}>
           <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
-            <span className="pill good">Synced</span>
+            <span className="pill good">Synced{syncLine ? ` (${syncLine})` : ""}</span>
             <span style={{ fontWeight: 600 }}>
               {syncPushedCount} invoice{syncPushedCount !== 1 ? "s" : ""} pushed to QuickBooks
               {syncErrorsCount ? ` · ${syncErrorsCount} error${syncErrorsCount !== 1 ? "s" : ""}` : ""}
@@ -141,7 +157,7 @@ export default async function UploadPage({
       {syncErrDetail && (
         <div className="card" style={{ borderLeft: "4px solid #dc2626", background: "#fff5f5", marginBottom: "1.25rem" }}>
           <div className="row" style={{ gap: ".6rem", alignItems: "center" }}>
-            <span className="pill bad">Sync failed</span>
+            <span className="pill bad">Sync failed{syncLine ? ` (${syncLine})` : ""}</span>
           </div>
           <p className="muted" style={{ marginTop: ".5rem", fontSize: ".82rem", fontFamily: "ui-monospace,monospace" }}>
             {syncErrDetail}
@@ -150,17 +166,29 @@ export default async function UploadPage({
       )}
 
       {/* Sync from Google Sheets — reads Lee's live sheets and pushes directly */}
-      <div className="card" style={{ marginBottom: "1.5rem", background: "var(--surface-hi)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-          <div>
-            <p style={{ fontWeight: 700, fontSize: ".95rem" }}>Sync from Google Sheets</p>
-            <p className="muted" style={{ fontSize: ".84rem", marginTop: ".2rem" }}>
-              Reads the live MLIG and MLIE sheets directly and pushes new invoices to QuickBooks
-              (with PDFs saved to Drive) — no file to download or upload.
-            </p>
+      <div className="card-grid" style={{ marginBottom: "1.5rem" }}>
+        <div className="card" style={{ background: "var(--surface-hi)" }}>
+          <div className="row" style={{ gap: ".6rem", alignItems: "center", marginBottom: ".6rem" }}>
+            <span className="pill mlig">MLIG</span>
+            <p style={{ fontWeight: 700, fontSize: ".95rem", margin: 0 }}>Sync from Sheet</p>
           </div>
-          <form action={syncFromSheets}>
-            <SubmitButton label="Sync & Push →" loadingLabel="Syncing…" className="lg" />
+          <p className="muted" style={{ fontSize: ".84rem", marginBottom: "1rem" }}>
+            Reads the live Lessons sheet and pushes new invoices to QuickBooks (PDFs saved to Drive).
+          </p>
+          <form action={syncMlig}>
+            <SubmitButton label="Sync & Push MLIG →" loadingLabel="Syncing…" className="lg" />
+          </form>
+        </div>
+        <div className="card" style={{ background: "var(--surface-hi)" }}>
+          <div className="row" style={{ gap: ".6rem", alignItems: "center", marginBottom: ".6rem" }}>
+            <span className="pill mlie">MLIE</span>
+            <p style={{ fontWeight: 700, fontSize: ".95rem", margin: 0 }}>Sync from Sheet</p>
+          </div>
+          <p className="muted" style={{ fontSize: ".84rem", marginBottom: "1rem" }}>
+            Reads the live Gigs sheet and pushes new invoices to QuickBooks (PDFs saved to Drive).
+          </p>
+          <form action={syncMlie}>
+            <SubmitButton label="Sync & Push MLIE →" loadingLabel="Syncing…" className="lg" />
           </form>
         </div>
       </div>

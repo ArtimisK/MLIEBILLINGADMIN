@@ -211,6 +211,43 @@ export interface SheetSyncOutcome {
   pushErrors: number;
 }
 
+async function syncOneSheet(
+  businessLine: "MLIG" | "MLIE",
+  sheetId: string | undefined,
+  parseRows: (rows: unknown[][]) => Promise<{ invoices: ProposedInvoice[]; errors: string[] }>,
+): Promise<SheetSyncOutcome | null> {
+  if (!sheetId) return null;
+  try {
+    const rows = await readCurrentTabRows(sheetId);
+    const { invoices, errors } = await parseRows(rows);
+    const draftIds = await persistDrafts(invoices);
+    const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
+    const pushed = pushResults.filter((o) => o.action !== "error").length;
+    const pushErrors = pushResults.filter((o) => o.action === "error").length;
+    await audit("system", "sheets_sync", businessLine, null, {
+      parsed: invoices.length,
+      parseErrors: errors.length,
+      pushed,
+      pushErrors,
+    });
+    return { businessLine, parsed: invoices.length, parseErrors: errors.length, pushed, pushErrors };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await audit("system", "sheets_sync_error", businessLine, null, { message });
+    return { businessLine, parsed: 0, parseErrors: 1, pushed: 0, pushErrors: 0 };
+  }
+}
+
+/** Sync just the MLIG sheet: read -> parse -> persist -> push. */
+export async function syncMligSheet(): Promise<SheetSyncOutcome | null> {
+  return syncOneSheet("MLIG", process.env.GOOGLE_SHEET_MLIG_ID, parseMligRows);
+}
+
+/** Sync just the MLIE sheet: read -> parse -> persist -> push. */
+export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
+  return syncOneSheet("MLIE", process.env.GOOGLE_SHEET_MLIE_ID, parseMlieRows);
+}
+
 /**
  * Read the live MLIG and MLIE Google Sheets, parse any rows found, persist
  * them as drafts, and immediately push to QuickBooks — no manual upload or
@@ -220,65 +257,6 @@ export interface SheetSyncOutcome {
  * a safe no-op (already-imported rows are skipped, not duplicated).
  */
 export async function syncSheetsAndPush(): Promise<SheetSyncOutcome[]> {
-  const outcomes: SheetSyncOutcome[] = [];
-
-  const mligSheetId = process.env.GOOGLE_SHEET_MLIG_ID;
-  if (mligSheetId) {
-    try {
-      const rows = await readCurrentTabRows(mligSheetId);
-      const { invoices, errors } = await parseMligRows(rows);
-      const draftIds = await persistDrafts(invoices);
-      const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
-      const pushed = pushResults.filter((o) => o.action !== "error").length;
-      const pushErrors = pushResults.filter((o) => o.action === "error").length;
-      await audit("system", "sheets_sync", "MLIG", null, {
-        parsed: invoices.length,
-        parseErrors: errors.length,
-        pushed,
-        pushErrors,
-      });
-      outcomes.push({
-        businessLine: "MLIG",
-        parsed: invoices.length,
-        parseErrors: errors.length,
-        pushed,
-        pushErrors,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await audit("system", "sheets_sync_error", "MLIG", null, { message });
-      outcomes.push({ businessLine: "MLIG", parsed: 0, parseErrors: 1, pushed: 0, pushErrors: 0 });
-    }
-  }
-
-  const mlieSheetId = process.env.GOOGLE_SHEET_MLIE_ID;
-  if (mlieSheetId) {
-    try {
-      const rows = await readCurrentTabRows(mlieSheetId);
-      const { invoices, errors } = await parseMlieRows(rows);
-      const draftIds = await persistDrafts(invoices);
-      const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
-      const pushed = pushResults.filter((o) => o.action !== "error").length;
-      const pushErrors = pushResults.filter((o) => o.action === "error").length;
-      await audit("system", "sheets_sync", "MLIE", null, {
-        parsed: invoices.length,
-        parseErrors: errors.length,
-        pushed,
-        pushErrors,
-      });
-      outcomes.push({
-        businessLine: "MLIE",
-        parsed: invoices.length,
-        parseErrors: errors.length,
-        pushed,
-        pushErrors,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await audit("system", "sheets_sync_error", "MLIE", null, { message });
-      outcomes.push({ businessLine: "MLIE", parsed: 0, parseErrors: 1, pushed: 0, pushErrors: 0 });
-    }
-  }
-
-  return outcomes;
+  const outcomes = await Promise.all([syncMligSheet(), syncMlieSheet()]);
+  return outcomes.filter((o): o is SheetSyncOutcome => o != null);
 }
