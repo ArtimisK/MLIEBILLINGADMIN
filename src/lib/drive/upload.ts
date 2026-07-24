@@ -2,26 +2,34 @@
 // Requires GOOGLE_DRIVE_FOLDER_ID env var and a refresh token with
 // the https://www.googleapis.com/auth/drive.file scope.
 // If not configured (or upload fails), the push continues without a Drive file.
+// MLIE has its own folder (GOOGLE_DRIVE_FOLDER_ID_MLIE) so its PDFs don't mix
+// with MLIG's; MLIG (and anything else) falls back to the shared folder.
 
 import { Readable } from "stream";
 import { google } from "googleapis";
 import { getOAuthClient } from "@/lib/google/calendar";
 
-export function isDriveConfigured(): boolean {
-  return Boolean(
-    process.env.GOOGLE_DRIVE_FOLDER_ID && process.env.GOOGLE_REFRESH_TOKEN,
-  );
+function folderIdFor(businessLine?: "MLIG" | "MLIE"): string | undefined {
+  if (businessLine === "MLIE") {
+    return process.env.GOOGLE_DRIVE_FOLDER_ID_MLIE || process.env.GOOGLE_DRIVE_FOLDER_ID;
+  }
+  return process.env.GOOGLE_DRIVE_FOLDER_ID;
+}
+
+export function isDriveConfigured(businessLine?: "MLIG" | "MLIE"): boolean {
+  return Boolean(folderIdFor(businessLine) && process.env.GOOGLE_REFRESH_TOKEN);
 }
 
 /**
- * Upload a PDF buffer to the configured Drive folder.
+ * Upload a PDF buffer to the configured Drive folder for this business line.
  * Returns the created file's Drive ID.
  */
 export async function uploadInvoicePdf(
   docNumber: string,
   pdfBuffer: Buffer,
+  businessLine?: "MLIG" | "MLIE",
 ): Promise<string> {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const folderId = folderIdFor(businessLine);
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID is not set");
 
   const auth = getOAuthClient();

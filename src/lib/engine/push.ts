@@ -218,10 +218,11 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
       await markInvoicePushed(inv.id, created.id, "created");
 
       // Optional: upload QBO invoice PDF to Google Drive (non-fatal).
-      if (isDriveConfigured()) {
+      // MLIE PDFs go to their own folder, separate from MLIG's.
+      if (isDriveConfigured(inv.businessLine)) {
         try {
           const pdf = await qboGetPdf(`invoice/${created.id}/pdf`);
-          const driveFileId = await uploadInvoicePdf(inv.docNumber, pdf);
+          const driveFileId = await uploadInvoicePdf(inv.docNumber, pdf, inv.businessLine);
           await db
             .update(invoices)
             .set({ driveFileId })
