@@ -110,7 +110,12 @@ export async function parseMligBuffer(buffer: Buffer): Promise<ParseResult> {
     defval: null,
     raw: false,
   });
+  return parseMligRows(rows);
+}
 
+/** Same row format as parseMligBuffer, but for rows read directly from an
+ *  external source (e.g. the Google Sheets API) instead of an uploaded file. */
+export async function parseMligRows(rows: unknown[][]): Promise<ParseResult> {
   const invoices: ProposedInvoice[] = [];
   const errors: string[] = [];
   let skipped = 0;
@@ -223,7 +228,12 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
     defval: null,
     raw: false,
   });
+  return parseMlieRows(rows);
+}
 
+/** Same row format as parseMlieBuffer, but for rows read directly from an
+ *  external source (e.g. the Google Sheets API) instead of an uploaded file. */
+export async function parseMlieRows(rows: unknown[][]): Promise<ParseResult> {
   const invoices: ProposedInvoice[] = [];
   const errors: string[] = [];
   let skipped = 0;

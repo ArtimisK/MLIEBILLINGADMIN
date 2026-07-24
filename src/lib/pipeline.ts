@@ -18,6 +18,8 @@ import { classify } from "./engine/classify";
 import { priceEvent } from "./engine/pricing";
 import { persistDrafts, pushInvoices } from "./engine/push";
 import { audit } from "./engine/record";
+import { parseMligRows, parseMlieRows } from "./excel/parse";
+import { readCurrentTabRows } from "./google/sheets";
 import { MligLessonsStrategy } from "./engine/strategies/mlig";
 import { MlieGigsStrategy } from "./engine/strategies/mlie";
 import type { BillableEvent, BillingStrategy } from "./engine/strategies/base";
@@ -199,4 +201,84 @@ export async function confirmAndPush(
     errors,
   });
   return { pushed, errors };
+}
+
+export interface SheetSyncOutcome {
+  businessLine: "MLIG" | "MLIE";
+  parsed: number;
+  parseErrors: number;
+  pushed: number;
+  pushErrors: number;
+}
+
+/**
+ * Read the live MLIG and MLIE Google Sheets, parse any rows found, persist
+ * them as drafts, and immediately push to QuickBooks — no manual upload or
+ * review step. Each sheet is independent: a failure reading/parsing one
+ * doesn't block the other. Existing docNumber/natural-key idempotency in
+ * persistDrafts/pushInvoices means re-running this on unchanged sheets is
+ * a safe no-op (already-imported rows are skipped, not duplicated).
+ */
+export async function syncSheetsAndPush(): Promise<SheetSyncOutcome[]> {
+  const outcomes: SheetSyncOutcome[] = [];
+
+  const mligSheetId = process.env.GOOGLE_SHEET_MLIG_ID;
+  if (mligSheetId) {
+    try {
+      const rows = await readCurrentTabRows(mligSheetId);
+      const { invoices, errors } = await parseMligRows(rows);
+      const draftIds = await persistDrafts(invoices);
+      const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
+      const pushed = pushResults.filter((o) => o.action !== "error").length;
+      const pushErrors = pushResults.filter((o) => o.action === "error").length;
+      await audit("system", "sheets_sync", "MLIG", null, {
+        parsed: invoices.length,
+        parseErrors: errors.length,
+        pushed,
+        pushErrors,
+      });
+      outcomes.push({
+        businessLine: "MLIG",
+        parsed: invoices.length,
+        parseErrors: errors.length,
+        pushed,
+        pushErrors,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await audit("system", "sheets_sync_error", "MLIG", null, { message });
+      outcomes.push({ businessLine: "MLIG", parsed: 0, parseErrors: 1, pushed: 0, pushErrors: 0 });
+    }
+  }
+
+  const mlieSheetId = process.env.GOOGLE_SHEET_MLIE_ID;
+  if (mlieSheetId) {
+    try {
+      const rows = await readCurrentTabRows(mlieSheetId);
+      const { invoices, errors } = await parseMlieRows(rows);
+      const draftIds = await persistDrafts(invoices);
+      const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
+      const pushed = pushResults.filter((o) => o.action !== "error").length;
+      const pushErrors = pushResults.filter((o) => o.action === "error").length;
+      await audit("system", "sheets_sync", "MLIE", null, {
+        parsed: invoices.length,
+        parseErrors: errors.length,
+        pushed,
+        pushErrors,
+      });
+      outcomes.push({
+        businessLine: "MLIE",
+        parsed: invoices.length,
+        parseErrors: errors.length,
+        pushed,
+        pushErrors,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await audit("system", "sheets_sync_error", "MLIE", null, { message });
+      outcomes.push({ businessLine: "MLIE", parsed: 0, parseErrors: 1, pushed: 0, pushErrors: 0 });
+    }
+  }
+
+  return outcomes;
 }
