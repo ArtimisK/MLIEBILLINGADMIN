@@ -219,6 +219,13 @@ interface CreatedMarker {
   markColumn: string;
 }
 
+/** 'YYYY-MM' for the current calendar month — the month whose gigs are
+ *  actively happening/have already happened, as opposed to future months
+ *  already sitting in the sheet ahead of time. */
+function currentBillingMonth(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 async function syncOneSheet(
   businessLine: "MLIG" | "MLIE",
   sheetId: string | undefined,
@@ -280,13 +287,21 @@ export async function syncMligSheet(): Promise<SheetSyncOutcome | null> {
   return syncOneSheet("MLIG", process.env.GOOGLE_SHEET_MLIG_ID, parseMligRows);
 }
 
-/** Sync just the MLIE sheet: read -> parse -> persist -> push, then mark
- *  column G ("Invoice created") as YES for each row that was pushed. */
+/**
+ * Sync just the MLIE sheet: read -> parse -> persist -> push, then mark
+ * column G ("Invoice created") as YES for each row that was pushed. Only
+ * rows for the current calendar month are processed — the sheet accumulates
+ * future-dated rows as gigs get booked ahead of time, and this should never
+ * push those before they're actually due.
+ */
 export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
-  return syncOneSheet("MLIE", process.env.GOOGLE_SHEET_MLIE_ID, parseMlieRows, {
-    docNumberColumn: 5,
-    markColumn: "G",
-  });
+  const targetPeriod = currentBillingMonth();
+  return syncOneSheet(
+    "MLIE",
+    process.env.GOOGLE_SHEET_MLIE_ID,
+    (rows) => parseMlieRows(rows, targetPeriod),
+    { docNumberColumn: 5, markColumn: "G" },
+  );
 }
 
 /**

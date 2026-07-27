@@ -231,9 +231,19 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
   return parseMlieRows(rows);
 }
 
-/** Same row format as parseMlieBuffer, but for rows read directly from an
- *  external source (e.g. the Google Sheets API) instead of an uploaded file. */
-export async function parseMlieRows(rows: unknown[][]): Promise<ParseResult> {
+/**
+ * Same row format as parseMlieBuffer, but for rows read directly from an
+ * external source (e.g. the Google Sheets API) instead of an uploaded file.
+ *
+ * targetPeriod ('YYYY-MM'), if given, restricts output to rows whose service
+ * date falls in that month — the live sheet accumulates rows for future
+ * months as they're booked, and the sync should only ever push the month
+ * it's meant for, not everything sitting in the tab.
+ */
+export async function parseMlieRows(
+  rows: unknown[][],
+  targetPeriod?: string,
+): Promise<ParseResult> {
   const invoices: ProposedInvoice[] = [];
   const errors: string[] = [];
   let skipped = 0;
@@ -272,6 +282,7 @@ export async function parseMlieRows(rows: unknown[][]): Promise<ParseResult> {
     }
 
     const billingPeriod = toPeriod(serviceDate);
+    if (targetPeriod && billingPeriod !== targetPeriod) continue;
     const itemName = "60-Minute Music Performance";
 
     invoices.push({
