@@ -19,7 +19,7 @@ import { priceEvent } from "./engine/pricing";
 import { persistDrafts, pushInvoices } from "./engine/push";
 import { audit } from "./engine/record";
 import { parseMligRows, parseMlieRows } from "./excel/parse";
-import { readCurrentTabRows } from "./google/sheets";
+import { readCurrentTabRows, currentTabTitle, writeCell } from "./google/sheets";
 import { MligLessonsStrategy } from "./engine/strategies/mlig";
 import { MlieGigsStrategy } from "./engine/strategies/mlie";
 import type { BillableEvent, BillingStrategy } from "./engine/strategies/base";
@@ -211,10 +211,19 @@ export interface SheetSyncOutcome {
   pushErrors: number;
 }
 
+/** Column (0-indexed) in the sheet holding the invoice/doc number, and the
+ *  column letter to write "YES" into after a successful push — MLIE only,
+ *  MLIG has no such marker column and relies on docNumber uniqueness alone. */
+interface CreatedMarker {
+  docNumberColumn: number;
+  markColumn: string;
+}
+
 async function syncOneSheet(
   businessLine: "MLIG" | "MLIE",
   sheetId: string | undefined,
   parseRows: (rows: unknown[][]) => Promise<{ invoices: ProposedInvoice[]; errors: string[] }>,
+  createdMarker?: CreatedMarker,
 ): Promise<SheetSyncOutcome | null> {
   if (!sheetId) return null;
   try {
@@ -224,6 +233,30 @@ async function syncOneSheet(
     const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
     const pushed = pushResults.filter((o) => o.action !== "error").length;
     const pushErrors = pushResults.filter((o) => o.action === "error").length;
+
+    if (createdMarker) {
+      const pushedDocNumbers = new Set(
+        pushResults.filter((o) => o.action !== "error").map((o) => o.docNumber),
+      );
+      if (pushedDocNumbers.size > 0) {
+        const tabTitle = await currentTabTitle(sheetId);
+        for (let i = 1; i < rows.length; i++) {
+          const cell = rows[i]?.[createdMarker.docNumberColumn];
+          const docNumber = cell == null ? "" : String(cell).trim();
+          if (docNumber && pushedDocNumbers.has(docNumber)) {
+            try {
+              await writeCell(sheetId, tabTitle, createdMarker.markColumn, i + 1, "YES");
+            } catch (writeErr) {
+              await audit("system", "sheets_mark_error", businessLine, null, {
+                docNumber,
+                message: writeErr instanceof Error ? writeErr.message : String(writeErr),
+              });
+            }
+          }
+        }
+      }
+    }
+
     await audit("system", "sheets_sync", businessLine, null, {
       parsed: invoices.length,
       parseErrors: errors.length,
@@ -243,9 +276,13 @@ export async function syncMligSheet(): Promise<SheetSyncOutcome | null> {
   return syncOneSheet("MLIG", process.env.GOOGLE_SHEET_MLIG_ID, parseMligRows);
 }
 
-/** Sync just the MLIE sheet: read -> parse -> persist -> push. */
+/** Sync just the MLIE sheet: read -> parse -> persist -> push, then mark
+ *  column G ("Invoice created") as YES for each row that was pushed. */
 export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
-  return syncOneSheet("MLIE", process.env.GOOGLE_SHEET_MLIE_ID, parseMlieRows);
+  return syncOneSheet("MLIE", process.env.GOOGLE_SHEET_MLIE_ID, parseMlieRows, {
+    docNumberColumn: 5,
+    markColumn: "G",
+  });
 }
 
 /**

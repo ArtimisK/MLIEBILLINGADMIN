@@ -47,3 +47,29 @@ export async function readCurrentTabRows(sheetId: string): Promise<unknown[][]> 
   const tabTitle = await firstTabTitle(sheetId);
   return readSheetRows(sheetId, tabTitle);
 }
+
+/** Return the current (leftmost) tab's title, so a caller that already read
+ *  rows via readCurrentTabRows can write back to the same tab afterward. */
+export async function currentTabTitle(sheetId: string): Promise<string> {
+  return firstTabTitle(sheetId);
+}
+
+/** Write a single cell value, e.g. marking "Invoice created" as YES after a
+ *  successful push. rowNumber is 1-indexed and includes the header row (so
+ *  the first data row is 2), matching what a human sees in the sheet UI. */
+export async function writeCell(
+  sheetId: string,
+  tabTitle: string,
+  column: string,
+  rowNumber: number,
+  value: string,
+): Promise<void> {
+  const auth = getOAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `'${tabTitle}'!${column}${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[value]] },
+  });
+}

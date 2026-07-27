@@ -34,7 +34,8 @@ export function getOAuthClient() {
 }
 
 /** Consent URL for the one-time OAuth flow.
- *  Requests calendar + Drive.file + Sheets (read-only) so a single token covers all three. */
+ *  Requests calendar + Drive.file + Sheets (read/write, to mark rows as
+ *  pushed) so a single token covers all three. */
 export function getAuthUrl(): string {
   const client = getOAuthClient();
   return client.generateAuthUrl({
@@ -43,7 +44,7 @@ export function getAuthUrl(): string {
     scope: [
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/spreadsheets",
     ],
   });
 }
