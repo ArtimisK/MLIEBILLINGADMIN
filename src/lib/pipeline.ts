@@ -19,7 +19,7 @@ import { priceEvent } from "./engine/pricing";
 import { persistDrafts, pushInvoices } from "./engine/push";
 import { audit } from "./engine/record";
 import { parseMligRows, parseMlieRows } from "./excel/parse";
-import { readCurrentTabRows, currentTabTitle, writeCell } from "./google/sheets";
+import { readCurrentTabRows, currentTabTitle, writeCells } from "./google/sheets";
 import { MligLessonsStrategy } from "./engine/strategies/mlig";
 import { MlieGigsStrategy } from "./engine/strategies/mlie";
 import type { BillableEvent, BillingStrategy } from "./engine/strategies/base";
@@ -231,28 +231,32 @@ async function syncOneSheet(
     const { invoices, errors } = await parseRows(rows);
     const draftIds = await persistDrafts(invoices);
     const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
-    const pushed = pushResults.filter((o) => o.action !== "error").length;
+    // Only "created" is a genuinely new push — "skipped-existing" and
+    // "adopted-duplicate" mean this invoice was already in QBO from an
+    // earlier run, so they shouldn't count as freshly pushed or get their
+    // sheet row re-marked.
+    const pushed = pushResults.filter((o) => o.action === "created").length;
     const pushErrors = pushResults.filter((o) => o.action === "error").length;
 
     if (createdMarker) {
-      const pushedDocNumbers = new Set(
-        pushResults.filter((o) => o.action !== "error").map((o) => o.docNumber),
+      const createdDocNumbers = new Set(
+        pushResults.filter((o) => o.action === "created").map((o) => o.docNumber),
       );
-      if (pushedDocNumbers.size > 0) {
-        const tabTitle = await currentTabTitle(sheetId);
+      if (createdDocNumbers.size > 0) {
+        const rowNumbers: number[] = [];
         for (let i = 1; i < rows.length; i++) {
           const cell = rows[i]?.[createdMarker.docNumberColumn];
           const docNumber = cell == null ? "" : String(cell).trim();
-          if (docNumber && pushedDocNumbers.has(docNumber)) {
-            try {
-              await writeCell(sheetId, tabTitle, createdMarker.markColumn, i + 1, "YES");
-            } catch (writeErr) {
-              await audit("system", "sheets_mark_error", businessLine, null, {
-                docNumber,
-                message: writeErr instanceof Error ? writeErr.message : String(writeErr),
-              });
-            }
-          }
+          if (docNumber && createdDocNumbers.has(docNumber)) rowNumbers.push(i + 1);
+        }
+        try {
+          const tabTitle = await currentTabTitle(sheetId);
+          await writeCells(sheetId, tabTitle, createdMarker.markColumn, rowNumbers, "YES");
+        } catch (writeErr) {
+          await audit("system", "sheets_mark_error", businessLine, null, {
+            rowCount: rowNumbers.length,
+            message: writeErr instanceof Error ? writeErr.message : String(writeErr),
+          });
         }
       }
     }

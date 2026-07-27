@@ -54,22 +54,29 @@ export async function currentTabTitle(sheetId: string): Promise<string> {
   return firstTabTitle(sheetId);
 }
 
-/** Write a single cell value, e.g. marking "Invoice created" as YES after a
- *  successful push. rowNumber is 1-indexed and includes the header row (so
- *  the first data row is 2), matching what a human sees in the sheet UI. */
-export async function writeCell(
+/** Write the same value into multiple single cells in one API call — e.g.
+ *  marking "Invoice created" as YES for every row just pushed. One request
+ *  regardless of row count, so this doesn't hit Sheets' per-minute write
+ *  quota the way writing cell-by-cell does. rowNumbers are 1-indexed and
+ *  include the header row (so the first data row is 2), matching the UI. */
+export async function writeCells(
   sheetId: string,
   tabTitle: string,
   column: string,
-  rowNumber: number,
+  rowNumbers: number[],
   value: string,
 ): Promise<void> {
+  if (rowNumbers.length === 0) return;
   const auth = getOAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-  await sheets.spreadsheets.values.update({
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: sheetId,
-    range: `'${tabTitle}'!${column}${rowNumber}`,
-    valueInputOption: "RAW",
-    requestBody: { values: [[value]] },
+    requestBody: {
+      valueInputOption: "RAW",
+      data: rowNumbers.map((rowNumber) => ({
+        range: `'${tabTitle}'!${column}${rowNumber}`,
+        values: [[value]],
+      })),
+    },
   });
 }
