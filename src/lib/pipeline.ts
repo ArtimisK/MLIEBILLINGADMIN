@@ -291,15 +291,18 @@ export async function syncMligSheet(): Promise<SheetSyncOutcome | null> {
  * Sync just the MLIE sheet: read -> parse -> persist -> push, then mark
  * column G ("Invoice created") as YES for each row that was pushed. Only
  * rows for the current calendar month are processed — the sheet accumulates
- * future-dated rows as gigs get booked ahead of time, and this should never
- * push those before they're actually due.
+ * future-dated rows as gigs get booked ahead of time. Rows dated today or
+ * later are also excluded even within that month: an invoice must never be
+ * pushed before the gig it's for has actually happened, so a same-day row
+ * just waits for the next sync once that date has passed.
  */
 export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
   const targetPeriod = currentBillingMonth();
+  const now = new Date();
   return syncOneSheet(
     "MLIE",
     process.env.GOOGLE_SHEET_MLIE_ID,
-    (rows) => parseMlieRows(rows, targetPeriod),
+    (rows) => parseMlieRows(rows, targetPeriod, now),
     { docNumberColumn: 5, markColumn: "G" },
   );
 }

@@ -239,11 +239,19 @@ export async function parseMlieBuffer(buffer: Buffer): Promise<ParseResult> {
  * date falls in that month — the live sheet accumulates rows for future
  * months as they're booked, and the sync should only ever push the month
  * it's meant for, not everything sitting in the tab.
+ *
+ * now, if given, additionally excludes any row whose service date is today
+ * or later (comparing calendar days only) — an invoice for a gig must never
+ * be pushed before that gig has actually happened, even same-day. A row
+ * dated today just waits for the next time the sheet is synced, once that
+ * date has passed.
  */
 export async function parseMlieRows(
   rows: unknown[][],
   targetPeriod?: string,
+  now?: Date,
 ): Promise<ParseResult> {
+  const today = now ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : undefined;
   const invoices: ProposedInvoice[] = [];
   const errors: string[] = [];
   let skipped = 0;
@@ -283,6 +291,14 @@ export async function parseMlieRows(
 
     const billingPeriod = toPeriod(serviceDate);
     if (targetPeriod && billingPeriod !== targetPeriod) continue;
+    if (today) {
+      const serviceDay = new Date(
+        serviceDate.getFullYear(),
+        serviceDate.getMonth(),
+        serviceDate.getDate(),
+      );
+      if (serviceDay >= today) continue; // not happened yet — wait for a later sync
+    }
     const itemName = "60-Minute Music Performance";
 
     invoices.push({

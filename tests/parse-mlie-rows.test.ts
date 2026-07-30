@@ -37,4 +37,24 @@ describe("parseMlieRows", () => {
     const { invoices } = await parseMlieRows(rows, "2026-07");
     expect(invoices).toHaveLength(0);
   });
+
+  it("excludes a row dated today when `now` is given — a gig isn't invoiced same-day", async () => {
+    const rows = [
+      HEADER,
+      ["7/29/2026", "Parker Jewish", "2:00pm-3:00pm", "John Teto", "$250", "47PJI03", ""],
+      ["7/30/2026", "Dry Harbor", "2:30pm-3:30pm", "Jacqueline Real", "$200", "08DHA02", ""],
+    ];
+    const { invoices } = await parseMlieRows(rows, "2026-07", new Date(2026, 6, 30));
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].docNumber).toBe("47PJI03");
+  });
+
+  it("includes a row once its date is strictly before `now`", async () => {
+    const rows = [
+      HEADER,
+      ["7/30/2026", "Dry Harbor", "2:30pm-3:30pm", "Jacqueline Real", "$200", "08DHA02", ""],
+    ];
+    const { invoices } = await parseMlieRows(rows, "2026-07", new Date(2026, 6, 31));
+    expect(invoices).toHaveLength(1);
+  });
 });
