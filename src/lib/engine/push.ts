@@ -19,8 +19,37 @@ import { isDriveConfigured, uploadInvoicePdf } from "@/lib/drive/upload";
 import { audit } from "./record";
 import type { ProposedInvoice } from "./types";
 
-/** Write proposed invoices (+ lines) as `draft` rows, skipping ones that already
- *  exist by natural key. Returns the persisted invoice ids. Pure DB, no QBO. */
+/** Insert an invoice's lines. Excel-imported lines have no eventGoogleId so
+ *  eventId stays null; lines from calendar ingest get linked so they can be
+ *  marked billed later. */
+async function insertLines(
+  invoiceId: number,
+  lines: ProposedInvoice["lines"],
+): Promise<void> {
+  for (const line of lines) {
+    const ev = line.eventGoogleId
+      ? await db.select({ id: events.id }).from(events)
+          .where(eq(events.googleEventId, line.eventGoogleId)).limit(1)
+      : [];
+    await db.insert(invoiceLines).values({
+      invoiceId,
+      eventId: ev[0]?.id ?? null,
+      serviceDate: line.serviceDate,
+      itemName: line.itemName,
+      description: line.description,
+      amount: String(line.amount),
+    });
+  }
+}
+
+/**
+ * Write proposed invoices (+ lines) as `draft` rows. An invoice already
+ * pushed (status created/sent) is never touched. An invoice still in draft
+ * gets its lines fully replaced with the freshly-parsed set — otherwise a
+ * re-sync after the source sheet gained more rows (e.g. more lessons added
+ * mid-month) would silently keep whatever partial line set was captured the
+ * first time this docNumber was seen.
+ */
 export async function persistDrafts(
   proposed: ProposedInvoice[],
 ): Promise<number[]> {
@@ -41,7 +70,27 @@ export async function persistDrafts(
       .limit(1);
 
     if (existing.length > 0) {
-      ids.push(existing[0].id);
+      const row = existing[0];
+      // Never touch an invoice that's already been pushed — only a still-draft
+      // row gets its lines refreshed. Otherwise a re-sync after the sheet
+      // changed (e.g. more lessons added) silently kept whatever partial line
+      // set was there from the first time this docNumber was seen, since this
+      // branch used to just reuse the id without ever re-inserting lines.
+      if (row.status === "draft") {
+        await db.delete(invoiceLines).where(eq(invoiceLines.invoiceId, row.id));
+        await db
+          .update(invoices)
+          .set({
+            fundingOrgId: inv.fundingOrgId,
+            studentId: inv.studentId,
+            subtotal: String(inv.subtotal),
+            venueName: inv.venueName ?? null,
+            clientName: inv.clientName ?? null,
+          })
+          .where(eq(invoices.id, row.id));
+        await insertLines(row.id, inv.lines);
+      }
+      ids.push(row.id);
       continue;
     }
 
@@ -60,23 +109,7 @@ export async function persistDrafts(
       })
       .returning();
 
-    // Link lines to their source events so we can mark them billed later.
-    // Excel-imported lines have no eventGoogleId so eventId stays null.
-    for (const line of inv.lines) {
-      const ev = line.eventGoogleId
-        ? await db.select({ id: events.id }).from(events)
-            .where(eq(events.googleEventId, line.eventGoogleId)).limit(1)
-        : [];
-      await db.insert(invoiceLines).values({
-        invoiceId: row.id,
-        eventId: ev[0]?.id ?? null,
-        serviceDate: line.serviceDate,
-        itemName: line.itemName,
-        description: line.description,
-        amount: String(line.amount),
-      });
-    }
-
+    await insertLines(row.id, inv.lines);
     ids.push(row.id);
   }
 
