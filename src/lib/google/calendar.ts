@@ -34,8 +34,11 @@ export function getOAuthClient() {
 }
 
 /** Consent URL for the one-time OAuth flow.
- *  Requests calendar + Drive.file + Sheets (read/write, to mark rows as
- *  pushed) so a single token covers all three. */
+ *  Requests calendar + full Drive + Sheets (read/write) so a single token
+ *  covers all three. Full Drive (not drive.file) is required because the
+ *  invoice-PDF destination folders are owned by a different Google account
+ *  and only shared with this one — drive.file's narrower scope silently
+ *  fails to place created files inside a folder it doesn't own itself. */
 export function getAuthUrl(): string {
   const client = getOAuthClient();
   return client.generateAuthUrl({
@@ -43,7 +46,7 @@ export function getAuthUrl(): string {
     prompt: "consent",
     scope: [
       "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/drive",
       "https://www.googleapis.com/auth/spreadsheets",
     ],
   });

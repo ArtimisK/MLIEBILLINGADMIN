@@ -1,6 +1,10 @@
 // Google Drive: upload a QBO invoice PDF after push.
-// Requires GOOGLE_DRIVE_FOLDER_ID env var and a refresh token with
-// the https://www.googleapis.com/auth/drive.file scope.
+// Requires GOOGLE_DRIVE_FOLDER_ID env var and a refresh token with the full
+// https://www.googleapis.com/auth/drive scope — the destination folders are
+// owned by a different Google account and only shared with this one, and
+// the narrower drive.file scope silently fails to place created files
+// inside a folder it doesn't own (the file gets created but doesn't show up
+// under that folder from the owner's side).
 // If not configured (or upload fails), the push continues without a Drive file.
 // MLIE has its own folder (GOOGLE_DRIVE_FOLDER_ID_MLIE) so its PDFs don't mix
 // with MLIG's; MLIG (and anything else) falls back to the shared folder.
