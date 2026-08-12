@@ -252,7 +252,11 @@ export async function parseMlieRows(
   now?: Date,
 ): Promise<ParseResult> {
   const today = now ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : undefined;
-  const invoices: ProposedInvoice[] = [];
+  // Two sheet rows can share the same Invoice Number (e.g. the same venue
+  // booked twice in one day) — group those into one invoice with multiple
+  // lines, same as MLIG's multi-lesson invoices, instead of the second row
+  // silently losing to the docNumber-uniqueness guard downstream.
+  const byDocNumber = new Map<string, ProposedInvoice>();
   const errors: string[] = [];
   let skipped = 0;
 
@@ -300,24 +304,34 @@ export async function parseMlieRows(
       if (serviceDay >= today) continue; // not happened yet — wait for a later sync
     }
     const itemName = "60-Minute Music Performance";
+    const line = {
+      serviceDate,
+      itemName,
+      description: [performerName, time].filter(Boolean).join(" · ") || itemName,
+      amount,
+    };
 
-    invoices.push({
-      businessLine: "MLIE",
-      fundingOrgId: null,
-      studentId: null,
-      billingPeriod,
-      docNumber: invoiceNo,
-      venueName: location || "Unknown Venue",
-      lines: [
-        {
-          serviceDate,
-          itemName,
-          description: [performerName, time].filter(Boolean).join(" · ") || itemName,
-          amount,
-        },
-      ],
-      subtotal: amount,
-    });
+    const existing = byDocNumber.get(invoiceNo);
+    if (existing) {
+      existing.lines.push(line);
+      existing.subtotal += amount;
+    } else {
+      byDocNumber.set(invoiceNo, {
+        businessLine: "MLIE",
+        fundingOrgId: null,
+        studentId: null,
+        billingPeriod,
+        docNumber: invoiceNo,
+        venueName: location || "Unknown Venue",
+        lines: [line],
+        subtotal: amount,
+      });
+    }
+  }
+
+  const invoices = [...byDocNumber.values()];
+  for (const inv of invoices) {
+    inv.lines.sort((a, b) => a.serviceDate.getTime() - b.serviceDate.getTime());
   }
 
   return { invoices, errors, skipped };

@@ -57,4 +57,28 @@ describe("parseMlieRows", () => {
     const { invoices } = await parseMlieRows(rows, "2026-07", new Date(2026, 6, 31));
     expect(invoices).toHaveLength(1);
   });
+
+  it("merges two rows sharing the same Invoice Number into one invoice with two lines", async () => {
+    const rows = [
+      HEADER,
+      ["8/10/2026", "Brookside Multicare Nursing Center", "1:30pm-2:30pm", "Jacqueline Real", "$200", "29BMC02", ""],
+      ["8/10/2026", "Brookside Multicare Nursing Center", "2:45pm-3:45pm", "Jacqueline Real", "$200", "29BMC02", ""],
+    ];
+    const { invoices } = await parseMlieRows(rows);
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0].docNumber).toBe("29BMC02");
+    expect(invoices[0].lines).toHaveLength(2);
+    expect(invoices[0].subtotal).toBe(400);
+  });
+
+  it("sorts merged lines chronologically when dates differ", async () => {
+    const rows = [
+      HEADER,
+      ["8/12/2026", "Brookside", "2:45pm-3:45pm", "Jacqueline Real", "$200", "29BMC02", ""],
+      ["8/10/2026", "Brookside", "1:30pm-2:30pm", "Jacqueline Real", "$150", "29BMC02", ""],
+    ];
+    const { invoices } = await parseMlieRows(rows);
+    expect(invoices[0].lines[0].amount).toBe(150);
+    expect(invoices[0].lines[1].amount).toBe(200);
+  });
 });
