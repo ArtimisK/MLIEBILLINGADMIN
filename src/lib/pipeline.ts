@@ -19,7 +19,13 @@ import { priceEvent } from "./engine/pricing";
 import { persistDrafts, pushInvoices } from "./engine/push";
 import { audit } from "./engine/record";
 import { parseMligRows, parseMlieRows } from "./excel/parse";
-import { readCurrentTabRows, currentTabTitle, writeCells } from "./google/sheets";
+import {
+  readCurrentTabRows,
+  currentTabTitle,
+  readCurrentYearRows,
+  currentYearTabTitle,
+  writeCells,
+} from "./google/sheets";
 import { MligLessonsStrategy } from "./engine/strategies/mlig";
 import { MlieGigsStrategy } from "./engine/strategies/mlie";
 import type { BillableEvent, BillingStrategy } from "./engine/strategies/base";
@@ -231,10 +237,12 @@ async function syncOneSheet(
   sheetId: string | undefined,
   parseRows: (rows: unknown[][]) => Promise<{ invoices: ProposedInvoice[]; errors: string[] }>,
   createdMarker?: CreatedMarker,
+  readRows: (sheetId: string) => Promise<unknown[][]> = readCurrentTabRows,
+  resolveTabTitle: (sheetId: string) => Promise<string> = currentTabTitle,
 ): Promise<SheetSyncOutcome | null> {
   if (!sheetId) return null;
   try {
-    const rows = await readCurrentTabRows(sheetId);
+    const rows = await readRows(sheetId);
     const { invoices, errors } = await parseRows(rows);
     const draftIds = await persistDrafts(invoices);
     const pushResults = draftIds.length ? await pushInvoices(draftIds) : [];
@@ -257,7 +265,7 @@ async function syncOneSheet(
           if (docNumber && createdDocNumbers.has(docNumber)) rowNumbers.push(i + 1);
         }
         try {
-          const tabTitle = await currentTabTitle(sheetId);
+          const tabTitle = await resolveTabTitle(sheetId);
           await writeCells(sheetId, tabTitle, createdMarker.markColumn, rowNumbers, "YES");
         } catch (writeErr) {
           await audit("system", "sheets_mark_error", businessLine, null, {
@@ -295,6 +303,12 @@ export async function syncMligSheet(): Promise<SheetSyncOutcome | null> {
  * later are also excluded even within that month: an invoice must never be
  * pushed before the gig it's for has actually happened, so a same-day row
  * just waits for the next sync once that date has passed.
+ *
+ * MLIE's sheet has one tab per YEAR ("2026", "2025", "2027", ...) rather
+ * than MLIG's per-cycle tabs — reads the tab named for the current year
+ * explicitly instead of trusting tab position, since that position has
+ * already been accidentally changed by dragging tabs around (unlike MLIG,
+ * where a new tab is always added at the front each cycle on purpose).
  */
 export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
   const targetPeriod = currentBillingMonth();
@@ -304,6 +318,8 @@ export async function syncMlieSheet(): Promise<SheetSyncOutcome | null> {
     process.env.GOOGLE_SHEET_MLIE_ID,
     (rows) => parseMlieRows(rows, targetPeriod, now),
     { docNumberColumn: 5, markColumn: "G" },
+    (sheetId) => readCurrentYearRows(sheetId, now),
+    (sheetId) => currentYearTabTitle(sheetId, now),
   );
 }
 
