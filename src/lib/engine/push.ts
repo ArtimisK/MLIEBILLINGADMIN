@@ -19,6 +19,50 @@ import { isDriveConfigured, uploadInvoicePdf } from "@/lib/drive/upload";
 import { audit } from "./record";
 import type { ProposedInvoice } from "./types";
 
+/** "Ari Amir" -> "Ari A.", "Michael Angelo Cruces" -> "Michael C." (first
+ *  name kept in full, surname reduced to its initial). Single-word names
+ *  pass through unchanged. */
+function firstNameLastInitial(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] ?? fullName;
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return `${first} ${last.charAt(0).toUpperCase()}.`;
+}
+
+/** "2026-09" -> "September". */
+function monthName(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long" });
+}
+
+/**
+ * MLIG Drive filename: "{DocNumber} - {First} {Last initial}. - {Billing
+ * month} Invoice ({Service month} Billing Cycle)" — e.g.
+ * "03ISS0926 - Ari A. - September Invoice (August Billing Cycle)".
+ * billingPeriod is the invoice's own month (when it's sent); serviceMonth
+ * is derived from the actual lesson dates (when the lessons happened) —
+ * the two differ by design, since lessons are billed the following month.
+ * Falls back to the bare docNumber if clientName or lines are missing.
+ */
+export function buildMligDriveFileName(inv: {
+  docNumber: string;
+  clientName?: string | null;
+  billingPeriod: string;
+  lines: { serviceDate: Date }[];
+}): string {
+  if (!inv.clientName || inv.lines.length === 0) return inv.docNumber;
+  const name = firstNameLastInitial(inv.clientName);
+  const billingMonth = monthName(inv.billingPeriod);
+  const serviceDate = inv.lines[0].serviceDate;
+  const serviceMonth = new Date(
+    serviceDate.getFullYear(),
+    serviceDate.getMonth(),
+    1,
+  ).toLocaleDateString("en-US", { month: "long" });
+  return `${inv.docNumber} - ${name} - ${billingMonth} Invoice (${serviceMonth} Billing Cycle)`;
+}
+
 /** Insert an invoice's lines. Excel-imported lines have no eventGoogleId so
  *  eventId stays null; lines from calendar ingest get linked so they can be
  *  marked billed later. */
@@ -251,11 +295,22 @@ export async function pushInvoices(invoiceIds: number[], force = false): Promise
       await markInvoicePushed(inv.id, created.id, "created");
 
       // Optional: upload QBO invoice PDF to Google Drive (non-fatal).
-      // MLIE PDFs go to their own folder, separate from MLIG's.
+      // MLIE PDFs go to their own folder, separate from MLIG's. MLIG's
+      // filename is a descriptive "DocNumber - Name - Month Invoice
+      // (Service Month Billing Cycle)"; MLIE keeps the bare docNumber.
       if (isDriveConfigured(inv.businessLine)) {
         try {
           const pdf = await qboGetPdf(`invoice/${created.id}/pdf`);
-          const driveFileId = await uploadInvoicePdf(inv.docNumber, pdf, inv.businessLine);
+          const fileName =
+            inv.businessLine === "MLIG"
+              ? buildMligDriveFileName({
+                  docNumber: inv.docNumber,
+                  clientName: inv.clientName,
+                  billingPeriod: inv.billingPeriod,
+                  lines,
+                })
+              : inv.docNumber;
+          const driveFileId = await uploadInvoicePdf(fileName, pdf, inv.businessLine);
           await db
             .update(invoices)
             .set({ driveFileId })

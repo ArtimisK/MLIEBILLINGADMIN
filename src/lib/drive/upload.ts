@@ -26,10 +26,12 @@ export function isDriveConfigured(businessLine?: "MLIG" | "MLIE"): boolean {
 
 /**
  * Upload a PDF buffer to the configured Drive folder for this business line.
- * Returns the created file's Drive ID.
+ * fileName is used as-is (a ".pdf" extension is added if missing) — MLIG
+ * builds a descriptive name (see buildMligDriveFileName in push.ts); MLIE
+ * keeps using the bare docNumber. Returns the created file's Drive ID.
  */
 export async function uploadInvoicePdf(
-  docNumber: string,
+  fileName: string,
   pdfBuffer: Buffer,
   businessLine?: "MLIG" | "MLIE",
 ): Promise<string> {
@@ -39,9 +41,10 @@ export async function uploadInvoicePdf(
   const auth = getOAuthClient();
   const drive = google.drive({ version: "v3", auth });
 
+  const name = fileName.toLowerCase().endsWith(".pdf") ? fileName : `${fileName}.pdf`;
   const { data } = await drive.files.create({
     requestBody: {
-      name: `${docNumber}.pdf`,
+      name,
       parents: [folderId],
     },
     media: {
