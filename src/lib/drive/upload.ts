@@ -57,3 +57,17 @@ export async function uploadInvoicePdf(
   if (!data.id) throw new Error("Drive returned no file ID");
   return data.id;
 }
+
+/** Rename an existing Drive file in place (same content, same id, new
+ *  display name) — used to backfill the descriptive MLIG filename onto
+ *  PDFs that were uploaded before that naming scheme existed. */
+export async function renameDriveFile(fileId: string, newName: string): Promise<void> {
+  const auth = getOAuthClient();
+  const drive = google.drive({ version: "v3", auth });
+  const name = newName.toLowerCase().endsWith(".pdf") ? newName : `${newName}.pdf`;
+  await drive.files.update({
+    fileId,
+    requestBody: { name },
+    supportsAllDrives: true,
+  });
+}
