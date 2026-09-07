@@ -71,3 +71,25 @@ export async function renameDriveFile(fileId: string, newName: string): Promise<
     supportsAllDrives: true,
   });
 }
+
+/**
+ * True if a Drive file id still points at a real file. Our database can
+ * fall out of sync with reality if a file is deleted directly in Drive
+ * (has happened repeatedly with test/manual cleanup) — invoices.drive_file_id
+ * then silently points at nothing until something tries to use it and gets
+ * a "File not found" error. Used by the drive-health check to catch this
+ * proactively instead of waiting for that to happen.
+ */
+export async function driveFileExists(fileId: string): Promise<boolean> {
+  const auth = getOAuthClient();
+  const drive = google.drive({ version: "v3", auth });
+  try {
+    await drive.files.get({ fileId, fields: "id", supportsAllDrives: true });
+    return true;
+  } catch (err) {
+    const status = (err as { code?: number; response?: { status?: number } })?.code
+      ?? (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) return false;
+    throw err; // a real error (auth, network, etc.) shouldn't be reported as "missing"
+  }
+}
